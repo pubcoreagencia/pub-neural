@@ -1,11 +1,17 @@
+import os
 import unittest
 
 from src.retrieval.abstention import RetrievalAbstentionPolicy
+from src.retrieval.hybrid_search import HybridSearchEngine
 
 
 class FakeResult:
     def __init__(self, rrf_score: float = 0.016):
         self.rrf_score = rrf_score
+
+
+class FakeEmbeddingProvider:
+    model_id = "test-model"
 
 
 class TestRetrievalAbstentionPolicy(unittest.TestCase):
@@ -80,8 +86,6 @@ class TestRetrievalAbstentionPolicy(unittest.TestCase):
         self.assertEqual(decision.reason, "NO_DENSE_CANDIDATE")
 
     def test_environment_factory_defaults_to_disabled(self):
-        import os
-
         previous = {
             key: os.environ.get(key)
             for key in (
@@ -95,6 +99,80 @@ class TestRetrievalAbstentionPolicy(unittest.TestCase):
                 os.environ.pop(key, None)
             policy = RetrievalAbstentionPolicy.from_environment()
             self.assertFalse(policy.enabled)
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+    def test_environment_factory_reads_enabled_threshold(self):
+        previous = {
+            key: os.environ.get(key)
+            for key in (
+                "PUB_NEURAL_ABSTENTION_ENABLED",
+                "PUB_NEURAL_MIN_DENSE_SIMILARITY",
+                "PUB_NEURAL_ABSTENTION_ACCEPT_LEXICAL",
+            )
+        }
+        try:
+            os.environ["PUB_NEURAL_ABSTENTION_ENABLED"] = "1"
+            os.environ["PUB_NEURAL_MIN_DENSE_SIMILARITY"] = "0.91"
+            os.environ["PUB_NEURAL_ABSTENTION_ACCEPT_LEXICAL"] = "0"
+            policy = RetrievalAbstentionPolicy.from_environment()
+            self.assertTrue(policy.enabled)
+            self.assertAlmostEqual(policy.min_dense_similarity, 0.91)
+            self.assertFalse(policy.accept_on_lexical_candidate)
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+    def test_environment_factory_fails_closed_when_enabled_without_threshold(self):
+        previous = {
+            key: os.environ.get(key)
+            for key in (
+                "PUB_NEURAL_ABSTENTION_ENABLED",
+                "PUB_NEURAL_MIN_DENSE_SIMILARITY",
+                "PUB_NEURAL_ABSTENTION_ACCEPT_LEXICAL",
+            )
+        }
+        try:
+            os.environ["PUB_NEURAL_ABSTENTION_ENABLED"] = "true"
+            os.environ.pop("PUB_NEURAL_MIN_DENSE_SIMILARITY", None)
+            with self.assertRaises(ValueError):
+                RetrievalAbstentionPolicy.from_environment()
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+    def test_engine_uses_environment_policy_when_policy_not_supplied(self):
+        previous = {
+            key: os.environ.get(key)
+            for key in (
+                "PUB_NEURAL_ABSTENTION_ENABLED",
+                "PUB_NEURAL_MIN_DENSE_SIMILARITY",
+                "PUB_NEURAL_ABSTENTION_ACCEPT_LEXICAL",
+            )
+        }
+        try:
+            os.environ["PUB_NEURAL_ABSTENTION_ENABLED"] = "1"
+            os.environ["PUB_NEURAL_MIN_DENSE_SIMILARITY"] = "0.92"
+            os.environ["PUB_NEURAL_ABSTENTION_ACCEPT_LEXICAL"] = "0"
+
+            engine = HybridSearchEngine(
+                db_url="postgresql://unused",
+                embedding_provider=FakeEmbeddingProvider(),
+            )
+
+            self.assertTrue(engine.abstention_policy.enabled)
+            self.assertAlmostEqual(engine.abstention_policy.min_dense_similarity, 0.92)
+            self.assertFalse(engine.abstention_policy.accept_on_lexical_candidate)
         finally:
             for key, value in previous.items():
                 if value is None:
