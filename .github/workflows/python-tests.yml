@@ -9,6 +9,7 @@ on:
 
 jobs:
   unit-tests:
+    name: Unit Tests (Abstention & Policy)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -23,3 +24,24 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_abstention_policy.py' -v
           python -m unittest discover -s tests -p 'test_abstention_calibration.py' -v
+
+  integration-tests:
+    name: Integration Tests (PostgreSQL + pgvector)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip psycopg2-binary
+      - name: Pull pgvector Docker Image
+        run: docker pull pgvector/pgvector:pg16
+      - name: Run Ingestion & Extraction Integration Suite
+        run: bash tests/ingestion/run_ingestion_tests.sh
+      - name: Run Hybrid Retrieval & Vector Integration Suite
+        run: bash tests/vector/run_vector_tests.sh
+      - name: Run Projector Engine Integration Suite
+        run: bash tests/projectors/run_projector_tests.sh
