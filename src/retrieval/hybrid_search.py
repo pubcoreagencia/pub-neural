@@ -39,7 +39,7 @@ class HybridSearchEngine:
 
     The abstention gate is disabled by default for V0.1 backwards compatibility.
     Production callers should enable it only after calibrating a threshold on a
-    calibration split that is independent from the locked holdout set.
+    calibration split that is independent of the locked holdout set.
     """
 
     def __init__(
@@ -58,7 +58,11 @@ class HybridSearchEngine:
         self.lexical_limit = lexical_limit
         self.dense_limit = dense_limit
         self.final_limit = final_limit
-        self.abstention_policy = abstention_policy or RetrievalAbstentionPolicy.disabled()
+        self.abstention_policy = (
+            abstention_policy
+            if abstention_policy is not None
+            else RetrievalAbstentionPolicy.from_environment()
+        )
 
     def search(
         self,
