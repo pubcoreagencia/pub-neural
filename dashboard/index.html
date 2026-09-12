@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Pub Neural Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>mermaid.initialize({ startOnLoad: true });</script>
+</head>
+<body>
+  <header>
+    <h1>📊 Pub Neural Dashboard</h1>
+    <nav>
+      <ul>
+        <li><a href="../README.md" target="_blank">README</a></li>
+        <li><a href="../MASTER_CONTEXT.md" target="_blank">Master Context</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <section>
+    <h2>🧠 Visão Geral do Modelo Semântico</h2>
+    <div class="mermaid">
+      graph TD;
+        PROJECT["Projeto"] --> REPOSITORY["Repositório"];
+        REPOSITORY --> DOCUMENT["Documento"];
+        DOCUMENT --> SOURCE["Fonte"];
+        SOURCE --> EVIDENCE["Evidência"];
+        EVIDENCE --> EVENT["Evento"];
+        EVENT --> DECISION["Decisão"];
+        DECISION --> RULE["Regra"];
+        RULE --> GOVERNANCE["Governança"];
+        GOVERNANCE --> PATTERN["Padrão"];
+        PATTERN --> LESSON["Lição"];
+        LESSON --> SKILL["Habilidade"];
+        SKILL --> AGENT["Agente"];
+        AGENT --> CONCEPT["Conceito"];
+        classDef entity fill:#f9f,stroke:#333,stroke-width:2px;
+        class PROJECT,REPOSITORY,DOCUMENT,SOURCE,EVIDENCE,EVENT,DECISION,RULE,GOVERNANCE,PATTERN,LESSON,SKILL,AGENT,CONCEPT entity;
+    </div>
+  </section>
+
+  <section>
+    <h2>🚀 Próximos Passos</h2>
+    <ul>
+      <li>Implementar ingestão automática de Master Contexts de outros repositórios.</li>
+      <li>Adicionar visualização de grafo interativa (ex.: D3.js ou Cytoscape).</li>
+      <li>Integrar busca semântica usando embeddings (RAG).</li>
+    </ul>
+  </section>
+
+  <footer>
+    <p>Construído para Pub Neural – inspiração Obsidian</p>
+  </footer>
+</body>
+</html>

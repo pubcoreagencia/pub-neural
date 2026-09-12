@@ -1,0 +1,1409 @@
+-- ============================================================================
+-- PUB NEURAL V0 CANONICAL DATABASE MIGRATION
+-- Migration File: 0001_initial_v0_schema.sql
+-- Target: PostgreSQL 16+ with pgvector & pgcrypto
+-- Source Specification: docs/DATABASE_SCHEMA_V0.md & docs/ARCHITECTURE_V0_DECISION.md
+-- ============================================================================
+
+\set ON_ERROR_STOP on
+
+-- ----------------------------------------------------------------------------
+-- 1. EXTENSIONS & PREREQUISITES
+-- ----------------------------------------------------------------------------
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- ----------------------------------------------------------------------------
+-- 2. SCHEMA DEFINITION
+-- ----------------------------------------------------------------------------
+CREATE SCHEMA IF NOT EXISTS pub_neural;
+
+-- ----------------------------------------------------------------------------
+-- 3. ROLE PROVISIONING & HARDENING
+-- ----------------------------------------------------------------------------
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pub_neural_admin') THEN
+        CREATE ROLE pub_neural_admin WITH NOLOGIN BYPASSRLS;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pub_neural_ceo') THEN
+        CREATE ROLE pub_neural_ceo WITH NOLOGIN NOBYPASSRLS;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pub_neural_projector') THEN
+        CREATE ROLE pub_neural_projector WITH NOLOGIN BYPASSRLS;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pub_neural_app') THEN
+        CREATE ROLE pub_neural_app WITH NOLOGIN NOBYPASSRLS;
+    END IF;
+END;
+$$;
+
+GRANT USAGE ON SCHEMA pub_neural TO pub_neural_app, pub_neural_ceo, pub_neural_projector, pub_neural_admin;
+
+-- ----------------------------------------------------------------------------
+-- 4. ENUMS & DOMAIN TYPES
+-- ----------------------------------------------------------------------------
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON t.typnamespace = n.oid WHERE t.typname = 'neural_entity_type' AND n.nspname = 'pub_neural') THEN
+        CREATE TYPE pub_neural.neural_entity_type AS ENUM (
+            'ORGANIZATION',
+            'TRUST_ZONE',
+            'PROJECT',
+            'REPOSITORY',
+            'DOCUMENT',
+            'SOURCE',
+            'EVIDENCE',
+            'EVENT',
+            'DECISION',
+            'RULE',
+            'GOVERNANCE',
+            'PATTERN',
+            'LESSON',
+            'SKILL',
+            'AGENT',
+            'CONCEPT'
+        );
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON t.typnamespace = n.oid WHERE t.typname = 'neural_relation_type' AND n.nspname = 'pub_neural') THEN
+        CREATE TYPE pub_neural.neural_relation_type AS ENUM (
+            'USES',
+            'DEPENDS_ON',
+            'IMPLEMENTS',
+            'DISCOVERED_IN',
+            'DERIVED_FROM',
+            'VALIDATED_BY',
+            'SUPPORTED_BY',
+            'CONTRADICTS',
+            'SUPERSEDES',
+            'RELATED_TO',
+            'APPLIES_TO',
+            'CREATED_BY',
+            'USED_BY',
+            'REQUIRES'
+        );
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON t.typnamespace = n.oid WHERE t.typname = 'neural_promotion_state' AND n.nspname = 'pub_neural') THEN
+        CREATE TYPE pub_neural.neural_promotion_state AS ENUM (
+            'CAPTURED',
+            'OBSERVED',
+            'EXTRACTED',
+            'CANDIDATE',
+            'VALIDATED',
+            'ADOPTED',
+            'INSTITUTIONAL_CANDIDATE',
+            'INSTITUTIONAL'
+        );
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON t.typnamespace = n.oid WHERE t.typname = 'neural_conflict_state' AND n.nspname = 'pub_neural') THEN
+        CREATE TYPE pub_neural.neural_conflict_state AS ENUM (
+            'RESOLVED',
+            'CONTRADICTORY',
+            'BLOCKED',
+            'SUPERSEDED',
+            'DEPRECATED',
+            'REJECTED'
+        );
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM pg_type t JOIN pg_namespace n ON t.typnamespace = n.oid WHERE t.typname = 'neural_actor_role' AND n.nspname = 'pub_neural') THEN
+        CREATE TYPE pub_neural.neural_actor_role AS ENUM (
+            'CEO',
+            'ADMIN',
+            'PROJECTOR',
+            'INGESTOR',
+            'AGENT',
+            'AUDITOR'
+        );
+    END IF;
+END;
+$$;
+
+-- ----------------------------------------------------------------------------
+-- 5. CANONICAL EVENT LOG & SOURCE BLOBS
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pub_neural.neural_events (
+    id UUID PRIMARY KEY,
+    global_sequence BIGINT GENERATED BY DEFAULT AS IDENTITY UNIQUE NOT NULL,
+    event_type VARCHAR(64) NOT NULL,
+    event_version INTEGER NOT NULL DEFAULT 1,
+    payload_schema_version INTEGER NOT NULL DEFAULT 1,
+    producer_version VARCHAR(32) NOT NULL,
+    stream_id VARCHAR(128) NOT NULL,
+    stream_version BIGINT NOT NULL,
+    actor_id VARCHAR(128) NOT NULL,
+    actor_role pub_neural.neural_actor_role NOT NULL,
+    payload JSONB NOT NULL,
+    signature TEXT,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_neural_events_stream UNIQUE (stream_id, stream_version)
+);
+
+CREATE TABLE IF NOT EXISTS pub_neural.neural_event_parents (
+    event_id UUID NOT NULL REFERENCES pub_neural.neural_events(id) ON DELETE RESTRICT,
+    parent_event_id UUID NOT NULL REFERENCES pub_neural.neural_events(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (event_id, parent_event_id),
+    CONSTRAINT chk_neural_event_parents_no_self_loop CHECK (event_id <> parent_event_id)
+);
+
+CREATE TABLE IF NOT EXISTS pub_neural.source_blobs (
+    file_sha256 VARCHAR(64) PRIMARY KEY,
+    content_hash VARCHAR(64) NOT NULL,
+    storage_uri TEXT NOT NULL,
+    storage_backend VARCHAR(32) NOT NULL DEFAULT 'S3_COMPATIBLE',
+    byte_size BIGINT NOT NULL,
+    mime_type VARCHAR(64) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'VERIFIED',
+    integrity_verified_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    originating_event_id UUID NOT NULL REFERENCES pub_neural.neural_events(id) ON DELETE RESTRICT,
+    CONSTRAINT chk_source_blobs_bytes CHECK (byte_size >= 0),
+    CONSTRAINT chk_source_blobs_status CHECK (status IN ('VERIFIED', 'QUARANTINED'))
+);
+
+-- ----------------------------------------------------------------------------
+-- 6. GOVERNANCE & OPERATIONAL STATE TABLES
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pub_neural.trusted_actors (
+    actor_id VARCHAR(128) PRIMARY KEY,
+    actor_role pub_neural.neural_actor_role NOT NULL,
+    db_role NAME NOT NULL DEFAULT 'pub_neural_app',
+    authorized_trust_zones TEXT[] NOT NULL,
+    authorized_projects TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    credential_identity VARCHAR(64) NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked_at TIMESTAMPTZ,
+    revocation_reason TEXT,
+    originating_event_id UUID NOT NULL REFERENCES pub_neural.neural_events(id) ON DELETE RESTRICT,
+    CONSTRAINT chk_trusted_actors_revocation CHECK (
+        (is_active = TRUE AND revoked_at IS NULL) OR 
+        (is_active = FALSE AND revoked_at IS NOT NULL)
+    )
+);
+
+CREATE TABLE IF NOT EXISTS pub_neural.active_sessions (
+    session_token_hash VARCHAR(64) PRIMARY KEY,
+    actor_id VARCHAR(128) NOT NULL REFERENCES pub_neural.trusted_actors(actor_id) ON DELETE RESTRICT,
+    actor_role pub_neural.neural_actor_role NOT NULL,
+    active_trust_zone VARCHAR(64) NOT NULL,
+    active_project_id VARCHAR(64),
+    db_session_user NAME NOT NULL,
+    authenticated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT chk_active_sessions_expiry CHECK (expires_at > authenticated_at)
+);
+
+CREATE TABLE IF NOT EXISTS pub_neural.neural_projection_checkpoints (
+    projector_name VARCHAR(64) PRIMARY KEY,
+    last_processed_global_sequence BIGINT NOT NULL,
+    last_processed_event_id UUID NOT NULL REFERENCES pub_neural.neural_events(id) ON DELETE RESTRICT,
+    last_checkpoint_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(32) NOT NULL DEFAULT 'HEALTHY',
+    error_detail TEXT
+);
+
+CREATE TABLE IF NOT EXISTS pub_neural.neural_idempotency_records (
+    idempotency_key VARCHAR(128) PRIMARY KEY,
+    actor_id VARCHAR(128) NOT NULL,
+    request_hash VARCHAR(64) NOT NULL,
+    resulting_event_id UUID REFERENCES pub_neural.neural_events(id) ON DELETE RESTRICT,
+    response_payload JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS pub_neural.neural_schema_versions (
+    component VARCHAR(64) PRIMARY KEY,
+    current_version VARCHAR(32) NOT NULL,
+    minimum_compatible_version VARCHAR(32) NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ----------------------------------------------------------------------------
+-- 7. DERIVED PROJECTION TABLES
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pub_neural.neural_sources (
+    id UUID PRIMARY KEY,
+    trust_zone VARCHAR(64) NOT NULL DEFAULT 'tz_internal_holding',
+    project_id VARCHAR(64) NOT NULL,
+    repository VARCHAR(128) NOT NULL,
+    branch VARCHAR(64) NOT NULL,
+    commit_sha VARCHAR(64) NOT NULL,
+    file_path TEXT NOT NULL,
+    file_sha256 VARCHAR(64) NOT NULL REFERENCES pub_neural.source_blobs(file_sha256) ON DELETE RESTRICT,
+    content_hash VARCHAR(64) NOT NULL,
+    storage_uri TEXT NOT NULL,
+    mime_type VARCHAR(64) NOT NULL,
+    byte_size INTEGER NOT NULL,
+    observed_at TIMESTAMPTZ NOT NULL,
+    recorded_from TIMESTAMPTZ NOT NULL,
+    recorded_until TIMESTAMPTZ,
+    last_event_id UUID NOT NULL REFERENCES pub_neural.neural_events(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_neural_sources_repo_commit_path UNIQUE (repository, commit_sha, file_path)
+);
+
+CREATE TABLE IF NOT EXISTS pub_neural.neural_nodes (
+    id VARCHAR(128) PRIMARY KEY,
+    entity_type pub_neural.neural_entity_type NOT NULL,
+    title TEXT NOT NULL,
+    slug VARCHAR(128) NOT NULL,
+    summary TEXT,
+    content TEXT,
+    trust_zone VARCHAR(64) NOT NULL DEFAULT 'tz_internal_holding',
+    scope VARCHAR(64) NOT NULL DEFAULT 'GLOBAL',
+    project_id VARCHAR(64),
+    promotion_state pub_neural.neural_promotion_state NOT NULL DEFAULT 'CAPTURED',
+    promotion_reason TEXT,
+    conflict_state pub_neural.neural_conflict_state NOT NULL DEFAULT 'RESOLVED',
+    confidence_score FLOAT NOT NULL DEFAULT 1.0,
+    superseded_by VARCHAR(128) REFERENCES pub_neural.neural_nodes(id) ON DELETE RESTRICT,
+    valid_from TIMESTAMPTZ NOT NULL,
+    valid_until TIMESTAMPTZ,
+    recorded_from TIMESTAMPTZ NOT NULL,
+    recorded_until TIMESTAMPTZ,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    originating_event_id UUID NOT NULL REFERENCES pub_neural.neural_events(id) ON DELETE RESTRICT,
+    last_transition_event_id UUID NOT NULL REFERENCES pub_neural.neural_events(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_neural_nodes_valid_time CHECK (valid_until IS NULL OR valid_until >= valid_from),
+    CONSTRAINT chk_neural_nodes_system_time CHECK (recorded_until IS NULL OR recorded_until >= recorded_from),
+    CONSTRAINT chk_neural_nodes_confidence CHECK (confidence_score >= 0.0 AND confidence_score <= 1.0)
+);
+
+CREATE TABLE IF NOT EXISTS pub_neural.neural_edges (
+    id UUID PRIMARY KEY,
+    source_id VARCHAR(128) NOT NULL REFERENCES pub_neural.neural_nodes(id) ON DELETE RESTRICT,
+    target_id VARCHAR(128) NOT NULL REFERENCES pub_neural.neural_nodes(id) ON DELETE RESTRICT,
+    relation_type pub_neural.neural_relation_type NOT NULL,
+    weight FLOAT NOT NULL DEFAULT 1.0,
+    is_bidirectional BOOLEAN NOT NULL DEFAULT FALSE,
+    trust_zone VARCHAR(64) NOT NULL DEFAULT 'tz_internal_holding',
+    scope VARCHAR(64) NOT NULL DEFAULT 'GLOBAL',
+    superseded_by UUID REFERENCES pub_neural.neural_edges(id) ON DELETE RESTRICT,
+    valid_from TIMESTAMPTZ NOT NULL,
+    valid_until TIMESTAMPTZ,
+    recorded_from TIMESTAMPTZ NOT NULL,
+    recorded_until TIMESTAMPTZ,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    originating_event_id UUID NOT NULL REFERENCES pub_neural.neural_events(id) ON DELETE RESTRICT,
+    last_transition_event_id UUID NOT NULL REFERENCES pub_neural.neural_events(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_neural_edges_active_triplet UNIQUE (source_id, relation_type, target_id, valid_from, recorded_from),
+    CONSTRAINT chk_neural_edges_valid_time CHECK (valid_until IS NULL OR valid_until >= valid_from),
+    CONSTRAINT chk_neural_edges_system_time CHECK (recorded_until IS NULL OR recorded_until >= recorded_from),
+    CONSTRAINT chk_neural_edges_weight CHECK (weight >= 0.0 AND weight <= 1.0)
+);
+
+CREATE TABLE IF NOT EXISTS pub_neural.neural_evidence (
+    id UUID PRIMARY KEY,
+    node_id VARCHAR(128) REFERENCES pub_neural.neural_nodes(id) ON DELETE CASCADE,
+    edge_id UUID REFERENCES pub_neural.neural_edges(id) ON DELETE CASCADE,
+    source_id UUID NOT NULL REFERENCES pub_neural.neural_sources(id) ON DELETE RESTRICT,
+    trust_zone VARCHAR(64) NOT NULL DEFAULT 'tz_internal_holding',
+    project_id VARCHAR(64),
+    content_hash VARCHAR(64) NOT NULL,
+    start_line INTEGER NOT NULL,
+    end_line INTEGER NOT NULL,
+    exact_quote TEXT NOT NULL,
+    context_before TEXT,
+    context_after TEXT,
+    confidence FLOAT NOT NULL DEFAULT 1.0,
+    validation_state VARCHAR(32) NOT NULL DEFAULT 'UNVERIFIED',
+    extractor_version VARCHAR(32) NOT NULL,
+    originating_event_id UUID NOT NULL REFERENCES pub_neural.neural_events(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_neural_evidence_target_xor CHECK (
+        (node_id IS NOT NULL AND edge_id IS NULL) OR 
+        (node_id IS NULL AND edge_id IS NOT NULL)
+    ),
+    CONSTRAINT chk_neural_evidence_lines CHECK (end_line >= start_line)
+);
+
+CREATE TABLE IF NOT EXISTS pub_neural.neural_vectors (
+    id UUID PRIMARY KEY,
+    target_type VARCHAR(32) NOT NULL,
+    target_id VARCHAR(128) NOT NULL,
+    trust_zone VARCHAR(64) NOT NULL DEFAULT 'tz_internal_holding',
+    project_id VARCHAR(64),
+    model_id VARCHAR(64) NOT NULL,
+    embedding vector(1536) NOT NULL,
+    content_hash VARCHAR(64) NOT NULL,
+    originating_event_id UUID NOT NULL REFERENCES pub_neural.neural_events(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_neural_vectors_target_model UNIQUE (target_type, target_id, model_id),
+    CONSTRAINT chk_neural_vectors_target_type CHECK (target_type IN ('NODE', 'EVIDENCE', 'COMMUNITY'))
+);
+
+CREATE TABLE IF NOT EXISTS pub_neural.neural_fts (
+    id VARCHAR(128) PRIMARY KEY REFERENCES pub_neural.neural_nodes(id) ON DELETE CASCADE,
+    trust_zone VARCHAR(64) NOT NULL,
+    project_id VARCHAR(64),
+    language_config REGCONFIG NOT NULL DEFAULT 'portuguese',
+    tsv_document tsvector NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS pub_neural.neural_community_reports (
+    id VARCHAR(160) PRIMARY KEY,
+    generation_id UUID NOT NULL,
+    level INTEGER NOT NULL,
+    cluster_id INTEGER NOT NULL,
+    is_current BOOLEAN NOT NULL DEFAULT TRUE,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    findings JSONB NOT NULL,
+    rating FLOAT NOT NULL,
+    rating_explanation TEXT,
+    trust_zone VARCHAR(64) NOT NULL DEFAULT 'tz_internal_holding',
+    project_id VARCHAR(64),
+    member_node_ids JSONB NOT NULL,
+    member_edge_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    graph_snapshot_hash VARCHAR(64) NOT NULL,
+    clustering_algorithm VARCHAR(32) NOT NULL DEFAULT 'hierarchical_leiden',
+    clustering_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+    input_hash VARCHAR(64) NOT NULL,
+    model_id VARCHAR(64) NOT NULL,
+    prompt_version VARCHAR(32) NOT NULL,
+    temperature NUMERIC(3,2) NOT NULL DEFAULT 0.0,
+    originating_event_id UUID NOT NULL REFERENCES pub_neural.neural_events(id) ON DELETE RESTRICT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_neural_community_gen_cluster UNIQUE (generation_id, level, cluster_id)
+);
+
+-- ----------------------------------------------------------------------------
+-- 8. INDEXES
+-- ----------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_neural_events_global_seq ON pub_neural.neural_events (global_sequence ASC);
+CREATE INDEX IF NOT EXISTS idx_neural_events_stream_ver ON pub_neural.neural_events (stream_id, stream_version ASC);
+CREATE INDEX IF NOT EXISTS idx_neural_events_type_recorded ON pub_neural.neural_events (event_type, recorded_at ASC);
+CREATE INDEX IF NOT EXISTS idx_neural_events_actor ON pub_neural.neural_events (actor_id, recorded_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_neural_event_parents_parent ON pub_neural.neural_event_parents (parent_event_id);
+
+CREATE INDEX IF NOT EXISTS idx_source_blobs_content_hash ON pub_neural.source_blobs (content_hash);
+CREATE INDEX IF NOT EXISTS idx_source_blobs_event ON pub_neural.source_blobs (originating_event_id);
+
+CREATE INDEX IF NOT EXISTS idx_active_sessions_lookup ON pub_neural.active_sessions (session_token_hash, db_session_user, expires_at);
+CREATE INDEX IF NOT EXISTS idx_active_sessions_cleanup ON pub_neural.active_sessions (expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_neural_idempotency_expires ON pub_neural.neural_idempotency_records (expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_neural_sources_lookup ON pub_neural.neural_sources (project_id, repository, file_path);
+CREATE INDEX IF NOT EXISTS idx_neural_sources_file_hash ON pub_neural.neural_sources (file_sha256);
+CREATE INDEX IF NOT EXISTS idx_neural_sources_commit ON pub_neural.neural_sources (commit_sha);
+CREATE INDEX IF NOT EXISTS idx_neural_sources_security ON pub_neural.neural_sources (trust_zone, project_id);
+
+CREATE INDEX IF NOT EXISTS idx_neural_nodes_type_active ON pub_neural.neural_nodes (entity_type, is_active);
+CREATE INDEX IF NOT EXISTS idx_neural_nodes_scope_active ON pub_neural.neural_nodes (scope, is_active);
+CREATE INDEX IF NOT EXISTS idx_neural_nodes_project ON pub_neural.neural_nodes (project_id) WHERE project_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_neural_nodes_promotion ON pub_neural.neural_nodes (promotion_state, is_active);
+CREATE INDEX IF NOT EXISTS idx_neural_nodes_valid_time ON pub_neural.neural_nodes (valid_from, valid_until);
+CREATE INDEX IF NOT EXISTS idx_neural_nodes_system_time ON pub_neural.neural_nodes (recorded_from, recorded_until);
+CREATE INDEX IF NOT EXISTS idx_neural_nodes_superseded ON pub_neural.neural_nodes (superseded_by) WHERE superseded_by IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_neural_nodes_security ON pub_neural.neural_nodes (trust_zone, project_id);
+
+CREATE INDEX IF NOT EXISTS idx_neural_edges_source_rel ON pub_neural.neural_edges (source_id, relation_type, is_active);
+CREATE INDEX IF NOT EXISTS idx_neural_edges_target_rel ON pub_neural.neural_edges (target_id, relation_type, is_active);
+CREATE INDEX IF NOT EXISTS idx_neural_edges_valid_time ON pub_neural.neural_edges (valid_from, valid_until);
+CREATE INDEX IF NOT EXISTS idx_neural_edges_system_time ON pub_neural.neural_edges (recorded_from, recorded_until);
+CREATE INDEX IF NOT EXISTS idx_neural_edges_active ON pub_neural.neural_edges (is_active) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_neural_edges_security ON pub_neural.neural_edges (trust_zone);
+
+CREATE INDEX IF NOT EXISTS idx_neural_evidence_node ON pub_neural.neural_evidence (node_id) WHERE node_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_neural_evidence_edge ON pub_neural.neural_evidence (edge_id) WHERE edge_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_neural_evidence_source ON pub_neural.neural_evidence (source_id);
+CREATE INDEX IF NOT EXISTS idx_neural_evidence_content_hash ON pub_neural.neural_evidence (content_hash);
+CREATE INDEX IF NOT EXISTS idx_neural_evidence_security ON pub_neural.neural_evidence (trust_zone, project_id);
+
+CREATE INDEX IF NOT EXISTS idx_neural_vectors_hnsw ON pub_neural.neural_vectors USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+CREATE INDEX IF NOT EXISTS idx_neural_vectors_lookup ON pub_neural.neural_vectors (target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_neural_vectors_security ON pub_neural.neural_vectors (trust_zone, project_id);
+
+CREATE INDEX IF NOT EXISTS idx_neural_fts_gin ON pub_neural.neural_fts USING gin (tsv_document);
+CREATE INDEX IF NOT EXISTS idx_neural_fts_security ON pub_neural.neural_fts (trust_zone, project_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_neural_community_current_active ON pub_neural.neural_community_reports(level, cluster_id) WHERE is_current = TRUE;
+CREATE INDEX IF NOT EXISTS idx_neural_community_generation ON pub_neural.neural_community_reports (generation_id);
+CREATE INDEX IF NOT EXISTS idx_neural_community_level_rating ON pub_neural.neural_community_reports (level, rating DESC) WHERE is_current = TRUE;
+CREATE INDEX IF NOT EXISTS idx_neural_community_lineage ON pub_neural.neural_community_reports (graph_snapshot_hash, input_hash);
+CREATE INDEX IF NOT EXISTS idx_neural_community_security ON pub_neural.neural_community_reports (trust_zone, project_id);
+
+-- ----------------------------------------------------------------------------
+-- 9. TRIGGERS & FUNCTIONS: IMMUTABILITY, DAG ACYCLICITY & SCOPE INTEGRITY
+-- ----------------------------------------------------------------------------
+
+-- 9.1 Physical Event Immutability Trigger
+CREATE OR REPLACE FUNCTION pub_neural.prevent_event_mutation()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pub_neural, public
+AS $$
+BEGIN
+    RAISE EXCEPTION 'Physical mutation denied: Table % is strictly append-only. UPDATE and DELETE are prohibited.', TG_TABLE_NAME;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_neural_events_no_mutation ON pub_neural.neural_events;
+CREATE TRIGGER trg_neural_events_no_mutation
+BEFORE UPDATE OR DELETE ON pub_neural.neural_events
+FOR EACH STATEMENT EXECUTE FUNCTION pub_neural.prevent_event_mutation();
+
+DROP TRIGGER IF EXISTS trg_neural_event_parents_no_mutation ON pub_neural.neural_event_parents;
+CREATE TRIGGER trg_neural_event_parents_no_mutation
+BEFORE UPDATE OR DELETE ON pub_neural.neural_event_parents
+FOR EACH STATEMENT EXECUTE FUNCTION pub_neural.prevent_event_mutation();
+
+-- 9.2 Causal DAG Acyclicity Trigger with Advisory Lock
+CREATE OR REPLACE FUNCTION pub_neural.check_event_dag_acyclicity()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pub_neural, public
+AS $$
+BEGIN
+    -- 1. Acquire transaction-level advisory lock on causal DAG insertions
+    PERFORM pg_advisory_xact_lock(hashtext('pub_neural_event_dag_lock'));
+
+    -- 2. Prevent inserting edge (NEW.event_id -> NEW.parent_event_id)
+    -- if parent_event_id can already reach event_id via ancestor traversal
+    IF EXISTS (
+        WITH RECURSIVE ancestors AS (
+            SELECT parent_event_id AS ancestor_id
+            FROM pub_neural.neural_event_parents
+            WHERE event_id = NEW.parent_event_id
+            
+            UNION
+            
+            SELECT p.parent_event_id
+            FROM pub_neural.neural_event_parents p
+            JOIN ancestors a ON p.event_id = a.ancestor_id
+        )
+        SELECT 1 FROM ancestors WHERE ancestor_id = NEW.event_id
+    ) THEN
+        RAISE EXCEPTION 'Causal cycle detected: event % is already an ancestor of parent %',
+            NEW.event_id, NEW.parent_event_id;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_neural_event_parents_acyclic ON pub_neural.neural_event_parents;
+CREATE TRIGGER trg_neural_event_parents_acyclic
+BEFORE INSERT ON pub_neural.neural_event_parents
+FOR EACH ROW EXECUTE FUNCTION pub_neural.check_event_dag_acyclicity();
+
+-- 9.3 Scope Integrity Triggers (FAIL_CLOSED)
+CREATE OR REPLACE FUNCTION pub_neural.check_source_scope_integrity()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pub_neural, public
+AS $$
+BEGIN
+    IF NEW.trust_zone IS NULL OR NEW.trust_zone = '' OR NEW.project_id IS NULL OR NEW.project_id = '' THEN
+        RAISE EXCEPTION 'Scope integrity violation: Source % must specify valid trust_zone and project_id', NEW.id;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_neural_sources_scope_integrity ON pub_neural.neural_sources;
+CREATE TRIGGER trg_neural_sources_scope_integrity
+BEFORE INSERT OR UPDATE ON pub_neural.neural_sources
+FOR EACH ROW EXECUTE FUNCTION pub_neural.check_source_scope_integrity();
+
+CREATE OR REPLACE FUNCTION pub_neural.check_edge_scope_integrity()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pub_neural, public
+AS $$
+DECLARE
+    v_src_zone VARCHAR(64);
+    v_tgt_zone VARCHAR(64);
+BEGIN
+    SELECT trust_zone INTO v_src_zone FROM pub_neural.neural_nodes WHERE id = NEW.source_id;
+    SELECT trust_zone INTO v_tgt_zone FROM pub_neural.neural_nodes WHERE id = NEW.target_id;
+
+    IF v_src_zone <> NEW.trust_zone OR v_tgt_zone <> NEW.trust_zone THEN
+        RAISE EXCEPTION 'Scope integrity violation: edge trust_zone % contradicts endpoint nodes (% / %)',
+            NEW.trust_zone, v_src_zone, v_tgt_zone;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_neural_edges_scope_integrity ON pub_neural.neural_edges;
+CREATE TRIGGER trg_neural_edges_scope_integrity
+BEFORE INSERT OR UPDATE ON pub_neural.neural_edges
+FOR EACH ROW EXECUTE FUNCTION pub_neural.check_edge_scope_integrity();
+
+CREATE OR REPLACE FUNCTION pub_neural.check_evidence_scope_integrity()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pub_neural, public
+AS $$
+DECLARE
+    v_target_zone VARCHAR(64);
+    v_target_project VARCHAR(64);
+BEGIN
+    IF NEW.node_id IS NOT NULL THEN
+        SELECT trust_zone, project_id INTO v_target_zone, v_target_project 
+        FROM pub_neural.neural_nodes WHERE id = NEW.node_id;
+    ELSE
+        SELECT trust_zone, NULL INTO v_target_zone, v_target_project 
+        FROM pub_neural.neural_edges WHERE id = NEW.edge_id;
+    END IF;
+
+    IF v_target_zone IS NULL THEN
+        RAISE EXCEPTION 'Scope integrity violation: Evidence target does not exist';
+    END IF;
+
+    NEW.trust_zone := v_target_zone;
+    NEW.project_id := v_target_project;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_neural_evidence_scope_integrity ON pub_neural.neural_evidence;
+CREATE TRIGGER trg_neural_evidence_scope_integrity
+BEFORE INSERT OR UPDATE ON pub_neural.neural_evidence
+FOR EACH ROW EXECUTE FUNCTION pub_neural.check_evidence_scope_integrity();
+
+CREATE OR REPLACE FUNCTION pub_neural.check_vector_scope_integrity()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pub_neural, public
+AS $$
+DECLARE
+    v_actual_zone VARCHAR(64);
+    v_actual_project VARCHAR(64);
+BEGIN
+    IF NEW.target_type = 'NODE' THEN
+        SELECT trust_zone, project_id INTO v_actual_zone, v_actual_project 
+        FROM pub_neural.neural_nodes WHERE id = NEW.target_id;
+    ELSIF NEW.target_type = 'EVIDENCE' THEN
+        SELECT trust_zone, project_id INTO v_actual_zone, v_actual_project 
+        FROM pub_neural.neural_evidence WHERE id = NEW.target_id::uuid;
+    ELSIF NEW.target_type = 'COMMUNITY' THEN
+        SELECT trust_zone, project_id INTO v_actual_zone, v_actual_project 
+        FROM pub_neural.neural_community_reports WHERE id = NEW.target_id;
+    END IF;
+
+    IF v_actual_zone IS NULL THEN
+        RAISE EXCEPTION 'Scope integrity violation: Vector target % (%) does not exist',
+            NEW.target_type, NEW.target_id;
+    END IF;
+
+    NEW.trust_zone := v_actual_zone;
+    NEW.project_id := v_actual_project;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_neural_vectors_scope_integrity ON pub_neural.neural_vectors;
+CREATE TRIGGER trg_neural_vectors_scope_integrity
+BEFORE INSERT OR UPDATE ON pub_neural.neural_vectors
+FOR EACH ROW EXECUTE FUNCTION pub_neural.check_vector_scope_integrity();
+
+CREATE OR REPLACE FUNCTION pub_neural.check_fts_scope_integrity()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pub_neural, public
+AS $$
+DECLARE
+    v_node_zone VARCHAR(64);
+    v_node_project VARCHAR(64);
+BEGIN
+    SELECT trust_zone, project_id INTO v_node_zone, v_node_project 
+    FROM pub_neural.neural_nodes WHERE id = NEW.id;
+
+    IF v_node_zone IS NULL THEN
+        RAISE EXCEPTION 'Scope integrity violation: Node % does not exist for FTS index', NEW.id;
+    END IF;
+
+    NEW.trust_zone := v_node_zone;
+    NEW.project_id := v_node_project;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_neural_fts_scope_integrity ON pub_neural.neural_fts;
+CREATE TRIGGER trg_neural_fts_scope_integrity
+BEFORE INSERT OR UPDATE ON pub_neural.neural_fts
+FOR EACH ROW EXECUTE FUNCTION pub_neural.check_fts_scope_integrity();
+
+-- ----------------------------------------------------------------------------
+-- 10. SECURITY DEFINER CORE FUNCTIONS
+-- ----------------------------------------------------------------------------
+
+-- 10.1 Establish Session Context
+CREATE OR REPLACE FUNCTION pub_neural.establish_session_context(
+    p_actor_id VARCHAR(128),
+    p_machine_secret TEXT,
+    p_requested_trust_zone VARCHAR(64),
+    p_requested_project VARCHAR(64) DEFAULT NULL
+) RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pub_neural, public
+AS $$
+DECLARE
+    v_actor_role pub_neural.neural_actor_role;
+    v_authorized_zones TEXT[];
+    v_authorized_projects TEXT[];
+    v_credential_identity VARCHAR(64);
+    v_raw_token TEXT;
+    v_token_hash VARCHAR(64);
+BEGIN
+    -- 1. Validate actor against trusted_actors registry
+    SELECT actor_role, authorized_trust_zones, authorized_projects, credential_identity
+    INTO v_actor_role, v_authorized_zones, v_authorized_projects, v_credential_identity
+    FROM pub_neural.trusted_actors
+    WHERE actor_id = p_actor_id 
+      AND is_active = TRUE
+      AND db_role = SESSION_USER;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Authentication failed: Invalid, revoked, or role-mismatched actor %', p_actor_id;
+    END IF;
+
+    -- 2. Verify high-entropy machine secret via SHA-256 digest comparison
+    IF encode(sha256(p_machine_secret::bytea), 'hex') <> v_credential_identity THEN
+        RAISE EXCEPTION 'Authentication failed: Invalid machine secret for actor %', p_actor_id;
+    END IF;
+
+    -- 3. Validate requested trust zone clearance
+    IF NOT (p_requested_trust_zone = ANY(v_authorized_zones)) AND v_actor_role <> 'CEO' THEN
+        RAISE EXCEPTION 'Authorization failed: Actor not cleared for trust zone %', p_requested_trust_zone;
+    END IF;
+
+    -- 4. Validate requested project clearance if scoped
+    IF p_requested_project IS NOT NULL AND cardinality(v_authorized_projects) > 0 THEN
+        IF NOT (p_requested_project = ANY(v_authorized_projects)) AND v_actor_role <> 'CEO' THEN
+            RAISE EXCEPTION 'Authorization failed: Actor not cleared for project %', p_requested_project;
+        END IF;
+    END IF;
+
+    -- 5. Generate high-entropy 256-bit unguessable raw token
+    v_raw_token := encode(gen_random_bytes(32), 'hex');
+    v_token_hash := encode(sha256(v_raw_token::bytea), 'hex');
+
+    -- 6. Register active session with 1-hour expiration
+    INSERT INTO pub_neural.active_sessions (
+        session_token_hash,
+        actor_id,
+        actor_role,
+        active_trust_zone,
+        active_project_id,
+        db_session_user,
+        authenticated_at,
+        expires_at
+    ) VALUES (
+        v_token_hash,
+        p_actor_id,
+        v_actor_role,
+        p_requested_trust_zone,
+        p_requested_project,
+        SESSION_USER,
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP + interval '1 hour'
+    );
+
+    RETURN v_raw_token;
+END;
+$$;
+
+-- 10.2 Attach Session
+CREATE OR REPLACE FUNCTION pub_neural.attach_session(
+    p_bearer_token TEXT
+) RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pub_neural, public
+AS $$
+DECLARE
+    v_token_hash VARCHAR(64);
+    v_actor_active BOOLEAN;
+    v_current_role pub_neural.neural_actor_role;
+    v_session_role pub_neural.neural_actor_role;
+BEGIN
+    IF p_bearer_token IS NULL OR p_bearer_token = '' THEN
+        RETURN FALSE;
+    END IF;
+
+    v_token_hash := encode(sha256(p_bearer_token::bytea), 'hex');
+
+    SELECT s.actor_role, a.is_active, a.actor_role 
+    INTO v_session_role, v_actor_active, v_current_role
+    FROM pub_neural.active_sessions s
+    JOIN pub_neural.trusted_actors a ON s.actor_id = a.actor_id
+    WHERE s.session_token_hash = v_token_hash
+      AND s.db_session_user = SESSION_USER
+      AND s.expires_at > CURRENT_TIMESTAMP;
+
+    IF v_actor_active IS NOT TRUE OR v_session_role <> v_current_role THEN
+        RETURN FALSE;
+    END IF;
+
+    PERFORM set_config('pub_neural.active_session_token_hash', v_token_hash, true);
+    RETURN TRUE;
+END;
+$$;
+
+-- 10.3 Verify Actor Access (STABLE SNAPSHOT-CONSISTENT RLS ACCESSOR)
+CREATE OR REPLACE FUNCTION pub_neural.verify_actor_access(
+    p_target_trust_zone VARCHAR(64),
+    p_target_project_id VARCHAR(64) DEFAULT NULL
+) RETURNS BOOLEAN
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pub_neural, public
+AS $$
+DECLARE
+    v_token_hash VARCHAR(64);
+    v_session pub_neural.active_sessions%ROWTYPE;
+    v_actor pub_neural.trusted_actors%ROWTYPE;
+BEGIN
+    -- Check 1: Sovereign CEO Role Clearance
+    -- CEO_AUTHORITY = DATABASE_ROLE_PLUS_ACTIVE_TRUSTED_ACTOR_RECORD
+    IF SESSION_USER = 'pub_neural_ceo' THEN
+        SELECT * INTO v_actor
+        FROM pub_neural.trusted_actors
+        WHERE db_role = 'pub_neural_ceo'
+          AND actor_role = 'CEO'
+          AND is_active = TRUE;
+
+        IF FOUND THEN
+            RETURN TRUE;
+        ELSE
+            RETURN FALSE;
+        END IF;
+    END IF;
+
+    -- Check 2: Projector Role (Internal reducer background worker read clearance)
+    IF SESSION_USER = 'pub_neural_projector' THEN
+        RETURN TRUE;
+    END IF;
+
+    -- Note on pub_neural_admin: Admin role is infrastructure-only and has BYPASSRLS for DDL/migrations.
+
+    -- Check 3: Read transaction-attached token hash
+    v_token_hash := current_setting('pub_neural.active_session_token_hash', true);
+    IF v_token_hash IS NULL OR v_token_hash = '' THEN
+        RETURN FALSE;
+    END IF;
+
+    -- Check 4: Look up token hash in protected active_sessions table for current SESSION_USER
+    SELECT * INTO v_session
+    FROM pub_neural.active_sessions
+    WHERE session_token_hash = v_token_hash
+      AND db_session_user = SESSION_USER
+      AND expires_at > CURRENT_TIMESTAMP;
+
+    IF NOT FOUND THEN
+        RETURN FALSE;
+    END IF;
+
+    -- Check 5: Verify that the actor remains active and current role matches session role
+    SELECT * INTO v_actor
+    FROM pub_neural.trusted_actors
+    WHERE actor_id = v_session.actor_id;
+
+    IF NOT FOUND OR v_actor.is_active IS NOT TRUE OR v_actor.actor_role <> v_session.actor_role THEN
+        RETURN FALSE;
+    END IF;
+
+    -- Check 6: Sovereign CEO Actor Role clearance
+    IF v_actor.actor_role = 'CEO' THEN
+        RETURN TRUE;
+    END IF;
+
+    -- Check 7: Trust Zone Verification against current authorization
+    IF v_session.active_trust_zone <> p_target_trust_zone 
+       OR NOT (p_target_trust_zone = ANY(v_actor.authorized_trust_zones)) THEN
+        RETURN FALSE;
+    END IF;
+
+    -- Check 8: Project Scope Verification
+    IF p_target_project_id IS NOT NULL AND v_session.active_project_id IS NOT NULL THEN
+        IF v_session.active_project_id <> p_target_project_id THEN
+            RETURN FALSE;
+        END IF;
+    END IF;
+
+    RETURN TRUE;
+END;
+$$;
+
+-- 10.4 Verify Edge Access (BOTH_ENDPOINTS_AUTHORIZED)
+CREATE OR REPLACE FUNCTION pub_neural.verify_edge_access(
+    p_source_id VARCHAR(128),
+    p_target_id VARCHAR(128),
+    p_edge_trust_zone VARCHAR(64)
+) RETURNS BOOLEAN
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pub_neural, public
+AS $$
+DECLARE
+    v_src_zone VARCHAR(64);
+    v_src_project VARCHAR(64);
+    v_tgt_zone VARCHAR(64);
+    v_tgt_project VARCHAR(64);
+BEGIN
+    IF NOT pub_neural.verify_actor_access(p_edge_trust_zone, NULL) THEN
+        RETURN FALSE;
+    END IF;
+
+    SELECT trust_zone, project_id INTO v_src_zone, v_src_project
+    FROM pub_neural.neural_nodes WHERE id = p_source_id;
+
+    IF v_src_zone IS NULL OR NOT pub_neural.verify_actor_access(v_src_zone, v_src_project) THEN
+        RETURN FALSE;
+    END IF;
+
+    SELECT trust_zone, project_id INTO v_tgt_zone, v_tgt_project
+    FROM pub_neural.neural_nodes WHERE id = p_target_id;
+
+    IF v_tgt_zone IS NULL OR NOT pub_neural.verify_actor_access(v_tgt_zone, v_tgt_project) THEN
+        RETURN FALSE;
+    END IF;
+
+    RETURN TRUE;
+END;
+$$;
+
+-- 10.5 Controlled Event Append Function
+CREATE OR REPLACE FUNCTION pub_neural.append_event(
+    p_event_id UUID,
+    p_event_type VARCHAR(64),
+    p_stream_id VARCHAR(128),
+    p_stream_version BIGINT,
+    p_producer_version VARCHAR(32),
+    p_payload JSONB,
+    p_parent_event_ids UUID[] DEFAULT ARRAY[]::UUID[],
+    p_signature TEXT DEFAULT NULL,
+    p_event_version INTEGER DEFAULT 1,
+    p_payload_schema_version INTEGER DEFAULT 1
+) RETURNS BIGINT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pub_neural, public
+AS $$
+DECLARE
+    v_token_hash VARCHAR(64);
+    v_session pub_neural.active_sessions%ROWTYPE;
+    v_actor pub_neural.trusted_actors%ROWTYPE;
+    v_new_global_sequence BIGINT;
+    v_parent_id UUID;
+    v_source_blob_exists BOOLEAN;
+BEGIN
+    -- 1. Genesis event cannot be appended via runtime function
+    IF p_event_type = 'GENESIS_BOOTSTRAP' THEN
+        RAISE EXCEPTION 'Security violation: GENESIS_BOOTSTRAP cannot be appended via runtime API';
+    END IF;
+
+    -- 2. Resolve caller identity strictly through trusted_actors registry
+    -- Path A: Native Sovereign CEO Database Connection (SESSION_USER = 'pub_neural_ceo')
+    IF SESSION_USER = 'pub_neural_ceo' THEN
+        SELECT * INTO v_actor
+        FROM pub_neural.trusted_actors
+        WHERE db_role = 'pub_neural_ceo'
+          AND actor_role = 'CEO'
+          AND is_active = TRUE;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Authorization failed: Sovereign CEO identity is not registered or has been revoked in trusted_actors';
+        END IF;
+
+    -- Path B: Dedicated Admin Role Prohibition (Option B: pub_neural_admin is infrastructure/migration only)
+    ELSIF SESSION_USER = 'pub_neural_admin' THEN
+        RAISE EXCEPTION 'Permission denied: pub_neural_admin is restricted exclusively to DDL, migrations, and maintenance. Runtime event appending is prohibited.';
+
+    -- Path C: Standard Application Connection with Attached Bearer Session (pub_neural_app)
+    ELSE
+        v_token_hash := current_setting('pub_neural.active_session_token_hash', true);
+        IF v_token_hash IS NULL OR v_token_hash = '' THEN
+            RAISE EXCEPTION 'Authentication required: No bearer session attached to transaction';
+        END IF;
+
+        SELECT * INTO v_session
+        FROM pub_neural.active_sessions
+        WHERE session_token_hash = v_token_hash
+          AND db_session_user = SESSION_USER
+          AND expires_at > CURRENT_TIMESTAMP;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Authentication failed: Invalid, expired, or cross-connection session token';
+        END IF;
+
+        SELECT * INTO v_actor
+        FROM pub_neural.trusted_actors
+        WHERE actor_id = v_session.actor_id
+          AND db_role = SESSION_USER;
+
+        IF NOT FOUND OR v_actor.is_active IS NOT TRUE OR v_actor.actor_role <> v_session.actor_role THEN
+            RAISE EXCEPTION 'Authorization failed: Actor is inactive or role was modified (SESSION_AUTHORITY = CURRENT_TRUSTED_ACTOR_ROLE)';
+        END IF;
+    END IF;
+
+    -- 3. Enforce Sovereign and Privileged Event Type Policies
+    IF p_event_type IN ('DECISION_RATIFIED', 'GOVERNANCE_RULE_RATIFIED') AND v_actor.actor_role <> 'CEO' THEN
+        RAISE EXCEPTION 'Authorization failed: Sovereign event type % requires active CEO role', p_event_type;
+    END IF;
+
+    IF p_event_type IN ('ACTOR_REGISTERED', 'ACTOR_REVOKED') AND v_actor.actor_role <> 'CEO' THEN
+        RAISE EXCEPTION 'Authorization failed: Governance event % requires active CEO role', p_event_type;
+    END IF;
+
+    IF p_event_type = 'SOURCE_BLOB_VERIFIED' THEN
+        IF v_actor.actor_role NOT IN ('INGESTOR', 'CEO') THEN
+            RAISE EXCEPTION 'Authorization failed: SOURCE_BLOB_VERIFIED requires INGESTOR or CEO role';
+        END IF;
+        IF p_payload->>'file_sha256' IS NULL OR p_payload->>'storage_uri' IS NULL OR p_payload->>'byte_size' IS NULL THEN
+            RAISE EXCEPTION 'Malformed payload: SOURCE_BLOB_VERIFIED requires file_sha256, storage_uri, and byte_size';
+        END IF;
+    END IF;
+
+    -- 4. Enforce Invariant: SOURCE_INGESTED requires previously verified blob manifest
+    IF p_event_type = 'SOURCE_INGESTED' THEN
+        IF v_actor.actor_role NOT IN ('INGESTOR', 'CEO') THEN
+            RAISE EXCEPTION 'Authorization failed: SOURCE_INGESTED requires INGESTOR or CEO role';
+        END IF;
+
+        SELECT EXISTS (
+            SELECT 1 FROM pub_neural.source_blobs 
+            WHERE file_sha256 = (p_payload->>'file_sha256')
+              AND status = 'VERIFIED'
+        ) INTO v_source_blob_exists;
+
+        IF NOT v_source_blob_exists THEN
+            RAISE EXCEPTION 'Invariant violation: SOURCE_INGESTED requires verified source_blob manifest for hash %',
+                (p_payload->>'file_sha256');
+        END IF;
+    END IF;
+
+    -- 5. Physical INSERT with server-derived actor_id and actor_role
+    INSERT INTO pub_neural.neural_events (
+        id,
+        event_type,
+        event_version,
+        payload_schema_version,
+        producer_version,
+        stream_id,
+        stream_version,
+        actor_id,
+        actor_role,
+        payload,
+        signature,
+        recorded_at
+    ) VALUES (
+        p_event_id,
+        p_event_type,
+        p_event_version,
+        p_payload_schema_version,
+        p_producer_version,
+        p_stream_id,
+        p_stream_version,
+        v_actor.actor_id,
+        v_actor.actor_role,
+        p_payload,
+        p_signature,
+        CURRENT_TIMESTAMP
+    ) RETURNING global_sequence INTO v_new_global_sequence;
+
+    -- 6. Insert parent causal links if provided
+    IF cardinality(p_parent_event_ids) > 0 THEN
+        FOREACH v_parent_id IN ARRAY p_parent_event_ids LOOP
+            INSERT INTO pub_neural.neural_event_parents (event_id, parent_event_id, created_at)
+            VALUES (p_event_id, v_parent_id, CURRENT_TIMESTAMP);
+        END LOOP;
+    END IF;
+
+    RETURN v_new_global_sequence;
+END;
+$$;
+
+-- 10.6 Register Verified Blob Function
+CREATE OR REPLACE FUNCTION pub_neural.register_verified_blob(
+    p_file_sha256 VARCHAR(64),
+    p_content_hash VARCHAR(64),
+    p_storage_uri TEXT,
+    p_storage_backend VARCHAR(32),
+    p_byte_size BIGINT,
+    p_mime_type VARCHAR(64),
+    p_event_id UUID
+) RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pub_neural, public
+AS $$
+DECLARE
+    v_event pub_neural.neural_events%ROWTYPE;
+    v_existing_blob pub_neural.source_blobs%ROWTYPE;
+BEGIN
+    SELECT * INTO v_event FROM pub_neural.neural_events WHERE id = p_event_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Blob registration failed: Originating event % does not exist', p_event_id;
+    END IF;
+
+    IF v_event.event_type <> 'SOURCE_BLOB_VERIFIED' THEN
+        RAISE EXCEPTION 'Blob registration failed: Event % has type %, expected SOURCE_BLOB_VERIFIED', 
+            p_event_id, v_event.event_type;
+    END IF;
+
+    IF v_event.actor_role NOT IN ('INGESTOR', 'CEO') THEN
+        RAISE EXCEPTION 'Blob registration failed: Event % was created by actor % with unauthorized role %',
+            p_event_id, v_event.actor_id, v_event.actor_role;
+    END IF;
+
+    IF (v_event.payload->>'file_sha256') <> p_file_sha256 THEN
+        RAISE EXCEPTION 'Blob registration failed: file_sha256 mismatch (payload: %, param: %)',
+            (v_event.payload->>'file_sha256'), p_file_sha256;
+    END IF;
+
+    IF (v_event.payload->>'storage_uri') <> p_storage_uri THEN
+        RAISE EXCEPTION 'Blob registration failed: storage_uri mismatch (payload: %, param: %)',
+            (v_event.payload->>'storage_uri'), p_storage_uri;
+    END IF;
+
+    IF (v_event.payload->>'byte_size')::BIGINT <> p_byte_size THEN
+        RAISE EXCEPTION 'Blob registration failed: byte_size mismatch (payload: %, param: %)',
+            (v_event.payload->>'byte_size'), p_byte_size;
+    END IF;
+
+    IF p_content_hash IS NOT NULL AND (v_event.payload->>'content_hash') IS NOT NULL THEN
+        IF (v_event.payload->>'content_hash') <> p_content_hash THEN
+            RAISE EXCEPTION 'Blob registration failed: content_hash mismatch (payload: %, param: %)',
+                (v_event.payload->>'content_hash'), p_content_hash;
+        END IF;
+    END IF;
+
+    SELECT * INTO v_existing_blob FROM pub_neural.source_blobs WHERE file_sha256 = p_file_sha256;
+    IF FOUND THEN
+        IF v_existing_blob.storage_uri = p_storage_uri AND v_existing_blob.byte_size = p_byte_size THEN
+            RETURN;
+        ELSE
+            RAISE EXCEPTION 'Integrity violation: Blob % is already registered with conflicting metadata', p_file_sha256;
+        END IF;
+    END IF;
+
+    INSERT INTO pub_neural.source_blobs (
+        file_sha256,
+        content_hash,
+        storage_uri,
+        storage_backend,
+        byte_size,
+        mime_type,
+        status,
+        integrity_verified_at,
+        created_at,
+        originating_event_id
+    ) VALUES (
+        p_file_sha256,
+        p_content_hash,
+        p_storage_uri,
+        p_storage_backend,
+        p_byte_size,
+        p_mime_type,
+        'VERIFIED',
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP,
+        p_event_id
+    );
+END;
+$$;
+
+-- 10.7 Get Source Blob Access
+CREATE OR REPLACE FUNCTION pub_neural.get_source_blob_access(
+    p_file_sha256 VARCHAR(64)
+) RETURNS TABLE (
+    file_sha256 VARCHAR(64),
+    content_hash VARCHAR(64),
+    storage_uri TEXT,
+    storage_backend VARCHAR(32),
+    byte_size BIGINT,
+    mime_type VARCHAR(64)
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pub_neural, public
+AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pub_neural.neural_sources s
+        WHERE s.file_sha256 = p_file_sha256
+          AND pub_neural.verify_actor_access(s.trust_zone, s.project_id)
+    ) THEN
+        RAISE EXCEPTION 'Access denied: Actor not authorized for any source referencing blob %', p_file_sha256;
+    END IF;
+
+    RETURN QUERY
+    SELECT b.file_sha256, b.content_hash, b.storage_uri, b.storage_backend, b.byte_size, b.mime_type
+    FROM pub_neural.source_blobs b
+    WHERE b.file_sha256 = p_file_sha256;
+END;
+$$;
+
+-- ----------------------------------------------------------------------------
+-- 11. ROW LEVEL SECURITY (RLS & FORCE RLS)
+-- ----------------------------------------------------------------------------
+ALTER TABLE pub_neural.neural_nodes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pub_neural.neural_nodes FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS rls_neural_nodes ON pub_neural.neural_nodes;
+CREATE POLICY rls_neural_nodes ON pub_neural.neural_nodes
+FOR SELECT USING (pub_neural.verify_actor_access(trust_zone, project_id));
+
+ALTER TABLE pub_neural.neural_edges ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pub_neural.neural_edges FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS rls_neural_edges ON pub_neural.neural_edges;
+CREATE POLICY rls_neural_edges ON pub_neural.neural_edges
+FOR SELECT USING (pub_neural.verify_edge_access(source_id, target_id, trust_zone));
+
+ALTER TABLE pub_neural.neural_sources ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pub_neural.neural_sources FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS rls_neural_sources ON pub_neural.neural_sources;
+CREATE POLICY rls_neural_sources ON pub_neural.neural_sources
+FOR SELECT USING (pub_neural.verify_actor_access(trust_zone, project_id));
+
+ALTER TABLE pub_neural.neural_evidence ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pub_neural.neural_evidence FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS rls_neural_evidence ON pub_neural.neural_evidence;
+CREATE POLICY rls_neural_evidence ON pub_neural.neural_evidence
+FOR SELECT USING (pub_neural.verify_actor_access(trust_zone, project_id));
+
+ALTER TABLE pub_neural.neural_vectors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pub_neural.neural_vectors FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS rls_neural_vectors ON pub_neural.neural_vectors;
+CREATE POLICY rls_neural_vectors ON pub_neural.neural_vectors
+FOR SELECT USING (pub_neural.verify_actor_access(trust_zone, project_id));
+
+ALTER TABLE pub_neural.neural_community_reports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pub_neural.neural_community_reports FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS rls_neural_community_reports ON pub_neural.neural_community_reports;
+CREATE POLICY rls_neural_community_reports ON pub_neural.neural_community_reports
+FOR SELECT USING (pub_neural.verify_actor_access(trust_zone, project_id));
+
+ALTER TABLE pub_neural.neural_fts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pub_neural.neural_fts FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS rls_neural_fts ON pub_neural.neural_fts;
+CREATE POLICY rls_neural_fts ON pub_neural.neural_fts
+FOR SELECT USING (pub_neural.verify_actor_access(trust_zone, project_id));
+
+-- ----------------------------------------------------------------------------
+-- 12. PERMISSIONS & PRIVILEGE LOCKDOWN
+-- ----------------------------------------------------------------------------
+REVOKE ALL ON ALL TABLES IN SCHEMA pub_neural FROM PUBLIC;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA pub_neural FROM PUBLIC;
+
+-- Event Log: app can only SELECT; physical INSERT/UPDATE/DELETE revoked
+REVOKE ALL ON pub_neural.neural_events FROM pub_neural_app;
+GRANT SELECT ON pub_neural.neural_events TO pub_neural_app, pub_neural_projector, pub_neural_ceo;
+
+REVOKE ALL ON pub_neural.neural_event_parents FROM pub_neural_app;
+GRANT SELECT ON pub_neural.neural_event_parents TO pub_neural_app, pub_neural_projector, pub_neural_ceo;
+
+-- Source Blobs: app cannot DML; direct SELECT revoked
+REVOKE ALL ON pub_neural.source_blobs FROM pub_neural_app;
+GRANT SELECT ON pub_neural.source_blobs TO pub_neural_projector, pub_neural_ceo;
+
+-- Trusted Actors & Sessions: app cannot read or write directly
+REVOKE ALL ON pub_neural.trusted_actors FROM pub_neural_app, pub_neural_projector;
+GRANT SELECT ON pub_neural.trusted_actors TO pub_neural_ceo;
+
+REVOKE ALL ON pub_neural.active_sessions FROM pub_neural_app, pub_neural_projector;
+GRANT SELECT ON pub_neural.active_sessions TO pub_neural_ceo;
+
+-- Derived Projections: app can SELECT subject to FORCE RLS
+GRANT SELECT ON pub_neural.neural_nodes TO pub_neural_app, pub_neural_ceo;
+GRANT SELECT ON pub_neural.neural_edges TO pub_neural_app, pub_neural_ceo;
+GRANT SELECT ON pub_neural.neural_sources TO pub_neural_app, pub_neural_ceo;
+GRANT SELECT ON pub_neural.neural_evidence TO pub_neural_app, pub_neural_ceo;
+GRANT SELECT ON pub_neural.neural_vectors TO pub_neural_app, pub_neural_ceo;
+GRANT SELECT ON pub_neural.neural_fts TO pub_neural_app, pub_neural_ceo;
+GRANT SELECT ON pub_neural.neural_community_reports TO pub_neural_app, pub_neural_ceo;
+
+-- Projector role permissions on projections
+GRANT ALL ON pub_neural.neural_nodes TO pub_neural_projector;
+GRANT ALL ON pub_neural.neural_edges TO pub_neural_projector;
+GRANT ALL ON pub_neural.neural_sources TO pub_neural_projector;
+GRANT ALL ON pub_neural.neural_evidence TO pub_neural_projector;
+GRANT ALL ON pub_neural.neural_vectors TO pub_neural_projector;
+GRANT ALL ON pub_neural.neural_fts TO pub_neural_projector;
+GRANT ALL ON pub_neural.neural_community_reports TO pub_neural_projector;
+GRANT ALL ON pub_neural.neural_projection_checkpoints TO pub_neural_projector;
+GRANT ALL ON pub_neural.neural_idempotency_records TO pub_neural_app, pub_neural_projector;
+GRANT ALL ON pub_neural.neural_schema_versions TO pub_neural_projector;
+
+-- Function Execution Grants
+GRANT EXECUTE ON FUNCTION pub_neural.establish_session_context(VARCHAR, TEXT, VARCHAR, VARCHAR) TO pub_neural_app;
+GRANT EXECUTE ON FUNCTION pub_neural.attach_session(TEXT) TO pub_neural_app;
+GRANT EXECUTE ON FUNCTION pub_neural.verify_actor_access(VARCHAR, VARCHAR) TO pub_neural_app, pub_neural_projector, pub_neural_ceo;
+GRANT EXECUTE ON FUNCTION pub_neural.verify_edge_access(VARCHAR, VARCHAR, VARCHAR) TO pub_neural_app, pub_neural_projector, pub_neural_ceo;
+GRANT EXECUTE ON FUNCTION pub_neural.append_event(UUID, VARCHAR, VARCHAR, BIGINT, VARCHAR, JSONB, UUID[], TEXT, INTEGER, INTEGER) TO pub_neural_app, pub_neural_ceo;
+GRANT EXECUTE ON FUNCTION pub_neural.register_verified_blob(VARCHAR, VARCHAR, TEXT, VARCHAR, BIGINT, VARCHAR, UUID) TO pub_neural_app;
+GRANT EXECUTE ON FUNCTION pub_neural.get_source_blob_access(VARCHAR) TO pub_neural_app, pub_neural_projector, pub_neural_ceo;
+
+-- ----------------------------------------------------------------------------
+-- 13. CANONICAL GENESIS BOOTSTRAP
+-- ----------------------------------------------------------------------------
+-- Step 1: Insert real GENESIS_BOOTSTRAP event (global_sequence = 1)
+INSERT INTO pub_neural.neural_events (
+    id,
+    event_type,
+    event_version,
+    payload_schema_version,
+    producer_version,
+    stream_id,
+    stream_version,
+    actor_id,
+    actor_role,
+    payload,
+    recorded_at
+) VALUES (
+    '0191e4f0-0000-7000-8000-000000000001'::uuid,
+    'GENESIS_BOOTSTRAP',
+    1,
+    1,
+    'pub-neural-migration-0001',
+    'system:genesis',
+    1,
+    'actor:system:genesis',
+    'ADMIN',
+    '{"bootstrap_timestamp": "2026-09-12T00:00:00Z", "note": "Canonical Genesis Bootstrap Event"}'::jsonb,
+    CURRENT_TIMESTAMP
+);
+
+-- Step 2: Seed initial bootstrap actor bound to genuine GENESIS_BOOTSTRAP event
+INSERT INTO pub_neural.trusted_actors (
+    actor_id,
+    actor_role,
+    db_role,
+    authorized_trust_zones,
+    authorized_projects,
+    credential_identity,
+    is_active,
+    created_at,
+    originating_event_id
+) VALUES (
+    'actor:system:genesis',
+    'ADMIN',
+    'pub_neural_admin',
+    ARRAY['tz_internal_holding', 'tz_client_facing', 'tz_public'],
+    ARRAY[]::TEXT[],
+    'GENESIS_BOOTSTRAP_LOCKED_CREDENTIAL',
+    TRUE,
+    CURRENT_TIMESTAMP,
+    '0191e4f0-0000-7000-8000-000000000001'::uuid
+);
+
+-- Step 3: Register initial Sovereign CEO Principal
+-- CEO_CREDENTIAL_PROVISIONING = OUT_OF_BAND_AND_REQUIRED
+DO $$
+DECLARE
+    v_ceo_cred_hash VARCHAR(64);
+BEGIN
+    v_ceo_cred_hash := current_setting('pub_neural.bootstrap_ceo_credential_hash', true);
+    
+    IF v_ceo_cred_hash IS NULL OR v_ceo_cred_hash = '' THEN
+        RAISE EXCEPTION 'MIGRATION_BOOTSTRAP_FAILED: Missing mandatory deployment secret pub_neural.bootstrap_ceo_credential_hash. CEO sovereign actor cannot be created with null credential.';
+    END IF;
+
+    IF v_ceo_cred_hash IN ('OUT_OF_BAND_PROVISIONED_HASH', 'PLACEHOLDER', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') THEN
+        RAISE EXCEPTION 'MIGRATION_BOOTSTRAP_FAILED: Forbidden insecure/dummy credential hash provided for sovereign CEO.';
+    END IF;
+
+    IF length(v_ceo_cred_hash) <> 64 OR v_ceo_cred_hash !~ '^[0-9a-f]{64}$' THEN
+        RAISE EXCEPTION 'MIGRATION_BOOTSTRAP_FAILED: Invalid SHA-256 format for pub_neural.bootstrap_ceo_credential_hash. Must be 64-char lowercase hex.';
+    END IF;
+
+    INSERT INTO pub_neural.trusted_actors (
+        actor_id,
+        actor_role,
+        db_role,
+        authorized_trust_zones,
+        authorized_projects,
+        credential_identity,
+        is_active,
+        created_at,
+        originating_event_id
+    ) VALUES (
+        'actor:ceo:sovereign',
+        'CEO',
+        'pub_neural_ceo',
+        ARRAY['tz_internal_holding', 'tz_client_facing', 'tz_public'],
+        ARRAY[]::TEXT[],
+        v_ceo_cred_hash,
+        TRUE,
+        CURRENT_TIMESTAMP,
+        '0191e4f0-0000-7000-8000-000000000001'::uuid
+    );
+END;
+$$;
+
+-- Step 4: Permanently revoke Genesis Principal (GENESIS_BOOTSTRAP = ONE_TIME_ONLY)
+UPDATE pub_neural.trusted_actors 
+SET is_active = FALSE,
+    revoked_at = CURRENT_TIMESTAMP,
+    revocation_reason = 'BOOTSTRAP_COMPLETE'
+WHERE actor_id = 'actor:system:genesis';
+
+-- ----------------------------------------------------------------------------
+-- 14. MIGRATION ASSERTIONS
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_genesis_exists BOOLEAN;
+    v_genesis_seq BIGINT;
+    v_ceo_active BOOLEAN;
+    v_genesis_revoked BOOLEAN;
+BEGIN
+    SELECT EXISTS(SELECT 1 FROM pub_neural.neural_events WHERE id = '0191e4f0-0000-7000-8000-000000000001'::uuid),
+           global_sequence
+    INTO v_genesis_exists, v_genesis_seq
+    FROM pub_neural.neural_events
+    WHERE id = '0191e4f0-0000-7000-8000-000000000001'::uuid;
+
+    IF NOT v_genesis_exists OR v_genesis_seq <> 1 THEN
+        RAISE EXCEPTION 'MIGRATION_ASSERTION_FAILED: Genesis event missing or sequence is not 1 (actual: %)', v_genesis_seq;
+    END IF;
+
+    SELECT (is_active = TRUE AND actor_role = 'CEO') INTO v_ceo_active
+    FROM pub_neural.trusted_actors
+    WHERE actor_id = 'actor:ceo:sovereign';
+
+    IF NOT v_ceo_active THEN
+        RAISE EXCEPTION 'MIGRATION_ASSERTION_FAILED: Active sovereign CEO actor was not provisioned';
+    END IF;
+
+    SELECT (is_active = FALSE AND revocation_reason = 'BOOTSTRAP_COMPLETE') INTO v_genesis_revoked
+    FROM pub_neural.trusted_actors
+    WHERE actor_id = 'actor:system:genesis';
+
+    IF NOT v_genesis_revoked THEN
+        RAISE EXCEPTION 'MIGRATION_ASSERTION_FAILED: Genesis bootstrap actor was not permanently revoked';
+    END IF;
+END;
+$$;

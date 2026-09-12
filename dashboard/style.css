@@ -1,0 +1,51 @@
+/* Simple Obsidian‑like style */
+body {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  background-color: #1e1e1e;
+  color: #d4d4d4;
+  margin: 0;
+  padding: 0;
+}
+header {
+  background: #252526;
+  padding: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #c586c0;
+}
+nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 1rem;
+}
+nav a {
+  color: #9cdcfe;
+  text-decoration: none;
+}
+nav a:hover {
+  text-decoration: underline;
+}
+section {
+  padding: 1.5rem;
+  border-bottom: 1px solid #333;
+}
+section h2 {
+  color: #569cd6;
+}
+footer {
+  background: #252526;
+  color: #858585;
+  text-align: center;
+  padding: 0.5rem;
+  font-size: 0.9rem;
+}
+ul {
+  margin-left: 1.5rem;
+}
