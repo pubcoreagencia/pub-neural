@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+from .abstention import RetrievalAbstentionPolicy
 from .embedding_model import EmbeddingModelProvider
 
 
@@ -34,6 +35,11 @@ class HybridSearchEngine:
          with deterministic tie-breaking by (rrf_score DESC, target_id ASC).
       4. Strict tenant and actor isolation via bearer session / RLS checks.
       5. Staleness filtering: excludes vectors whose content_hash deviates from the live node/evidence.
+      6. Optional explicit abstention gate for out-of-domain / low-confidence queries.
+
+    The abstention gate is disabled by default for V0.1 backwards compatibility.
+    Production callers should enable it only after calibrating a threshold on a
+    calibration split that is independent from the locked holdout set.
     """
 
     def __init__(
@@ -43,7 +49,8 @@ class HybridSearchEngine:
         rrf_k: int = 60,
         lexical_limit: int = 20,
         dense_limit: int = 20,
-        final_limit: int = 10
+        final_limit: int = 10,
+        abstention_policy: Optional[RetrievalAbstentionPolicy] = None,
     ):
         self.db_url = db_url
         self.provider = embedding_provider
@@ -51,6 +58,7 @@ class HybridSearchEngine:
         self.lexical_limit = lexical_limit
         self.dense_limit = dense_limit
         self.final_limit = final_limit
+        self.abstention_policy = abstention_policy or RetrievalAbstentionPolicy.disabled()
 
     def search(
         self,
@@ -62,6 +70,9 @@ class HybridSearchEngine:
     ) -> List[HybridSearchResult]:
         """
         Execute end-to-end hybrid retrieval with RLS enforcement and RRF.
+
+        When an enabled abstention policy rejects the candidate set, the method
+        returns an empty result set rather than exposing low-confidence evidence.
         """
         if not query or not query.strip():
             return []
@@ -90,6 +101,17 @@ class HybridSearchEngine:
 
                 # 4. Perform Reciprocal Rank Fusion (RRF)
                 fused = self._fuse_rrf(lexical_results, dense_results)
+
+                # 5. Confidence / abstention gate. The policy is deliberately
+                # explicit and disabled by default until calibrated on known data.
+                decision = self.abstention_policy.evaluate(
+                    lexical_results=lexical_results,
+                    dense_results=dense_results,
+                    fused_results=fused,
+                )
+                if not decision.accepted:
+                    conn.commit()
+                    return []
 
                 conn.commit()
                 return fused[:self.final_limit]
