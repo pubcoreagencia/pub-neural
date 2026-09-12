@@ -553,3 +553,171 @@ Next milestone:
 **Final principle:**
 
 > PUB Neural must remember what PUB has already learned, know where each learning came from, know whether it is still valid, and deliver only the context relevant to the agent that needs to act.
+
+---
+
+## 17. VERIFIED HISTORICAL PUB CORE DATA — LOVABLE CLOUD
+
+**Recorded:** 2026-09-11  
+**Knowledge class:** `EPISODIC + SEMANTIC + SOURCE / PROVENANCE`  
+**Scope:** `PUB CORE / HISTORICAL INFRASTRUCTURE`  
+**Status:** `VALIDATED`  
+**Confidence:** `HIGH`
+
+A direct read-only investigation of the Lovable project **Pub Core Executive** established that its connected backend contains substantial historical PUB Core operational data. This is not treated as a hypothesis or reconstruction.
+
+### 17.1 Verified workspace
+
+The historical backend contains a workspace named:
+
+`PUB CORE's Workspace`
+
+The workspace was created in May 2026 and is the workspace identifier used by the historical Central de Arquivos records examined during this investigation.
+
+### 17.2 Verified historical dataset
+
+The connected backend currently exposes the following confirmed records/counts from the historical PUB Core environment:
+
+```text
+workspaces       = 7
+workspace_members = 7
+profiles         = 11
+kanban_cards     = 244
+files_folders    = 13
+files_items      = 47
+storage.buckets  = 3
+storage.objects  = 71
+```
+
+The database schema also contains historical PUB Core domains including calendar, checklist, completion reports, CRM, discography, finance, gratitude, Kanban, notes, personal finance, point tracking, shared items, sticky notes, stock/inventory, trends and workspace governance.
+
+### 17.3 Master/PUB CORE Central de Arquivos
+
+For the identified PUB CORE workspace, 13 historical folders were verified, including verticals and operational areas such as:
+
+```text
+CRIATIVOS
+PUB IA
+PUB ADSENSE
+PUBET
+PUB CRYPTO
+PUB ECOM
+PUB FILMS
+PUB FOOD
+PUB IMOVEIS
+PUB LAUNCH
+PUB TEXTIL
+XPAUDIOLAB
+PUB MEDIA
+```
+
+The backend contains 47 `files_items` records for the historical file system and corresponding physical objects in the Supabase Storage `files` bucket were directly observed under the same workspace prefix.
+
+Examples of verified historical object names include materials for PUB Ads, Crypto, Ecom, Films, Food, Imóveis, Launch, PUBET, Media and XPAUDIOLAB.
+
+### 17.4 Database metadata + physical Storage evidence
+
+This is an important distinction:
+
+```text
+files_items
+    ↓
+storage_path
+    ↓
+storage.objects
+    ↓
+physical Storage object
+```
+
+The investigation verified both database-level file metadata and Storage object records. Supabase documents that `storage.objects` stores object metadata while the actual file content is stored by the Storage provider, so these are distinct layers of evidence. citeturn0search0turn0search3
+
+The historical PUB CORE files therefore must not be treated as merely filenames in a database. Physical Storage objects are present in the historical backend.
+
+### 17.5 Historical continuity evidence
+
+The Lovable project edit history aligns with the operational data found in the backend. Verified historical events include:
+
+- June 2026: creation and population of Central de Arquivos material;
+- June 2026: creation of Discografia, Trends, Finanças Pessoais and sharing functionality;
+- July 2026: Kanban/workspace changes;
+- 2026-07-06: historical edit explicitly describing transfer of the Kanban from Luana's workspace to PUB CORE;
+- 2026-07-08: historical edit concerning urgent correction of the Central de Arquivos and investigation of Supabase Storage, metadata, workspace ownership/access and workspace migration;
+- 2026-08-16: historical developer update removing the `.env` from Git and preserving only an `.env.example` configuration surface.
+
+These events are consistent with a real operational PUB Core environment that was built and used over time, rather than a later empty reconstruction.
+
+### 17.6 Important unresolved identity link
+
+The following claim is **NOT YET DIRECTLY PROVEN** and must remain explicitly unresolved:
+
+```text
+Lovable Cloud historical backend
+        =
+Supabase project OWIM (`owimmytcffoovmokbple`)
+```
+
+The historical PUB Core repository contains a Supabase configuration reference to OWIM, and historical commits describe transition toward an external Supabase source of truth. The data found in the Lovable backend strongly matches the historical PUB Core system, but the exact backend identity mapping to OWIM requires one more direct piece of evidence.
+
+Do not convert this unresolved identity link into fact until verified.
+
+### 17.7 Source-of-truth rule for this discovery
+
+Until the backend identity chain is fully resolved:
+
+```text
+HISTORICAL DATA EXISTENCE       = CONFIRMED
+MASTER/PUB CORE FILES           = CONFIRMED
+PHYSICAL STORAGE OBJECTS        = CONFIRMED
+LOVABLE HISTORICAL BACKEND      = CONFIRMED
+LOVABLE BACKEND = OWIM          = UNRESOLVED
+HISTORICAL DATA LOST             = NOT SUPPORTED BY EVIDENCE
+```
+
+The correct operational posture is **preservation first**. Do not delete, migrate, overwrite, restore or mutate historical sources merely to simplify the architecture. Preserve the original evidence until provenance is completely mapped.
+
+### 17.8 Neural ingestion requirement
+
+This discovery is now part of PUB Neural's canonical institutional context, but the raw historical data remains project/source-owned.
+
+Neural must represent it as:
+
+```text
+SOURCE
+  ↓
+LOVABLE / PUB CORE EXECUTIVE
+  ↓
+HISTORICAL PUB CORE BACKEND
+  ↓
+WORKSPACE: PUB CORE
+  ├── operational data
+  ├── file metadata
+  ├── Storage objects
+  └── historical events
+  ↓
+PUB NEURAL
+  ├── semantic facts
+  ├── episodic events
+  ├── provenance
+  ├── confidence
+  └── unresolved links
+```
+
+Neural must not silently copy every historical file into its own source-of-truth layer. It should index, classify and relate the knowledge while preserving the original source and provenance.
+
+### 17.9 Forensic next step
+
+The remaining high-value investigation is to prove the backend identity chain:
+
+```text
+Lovable Cloud
+   ↕
+Historical Supabase connection
+   ↕
+OWIM
+   ↕
+Other Supabase projects / migrations
+   ↕
+Current PUB Core OS
+```
+
+This investigation must remain read-only until an explicit migration/restore instruction is provided.
