@@ -3,10 +3,12 @@
 ## Status
 
 ```text
-STATUS: DESIGN_READY
-IMPLEMENTATION STATUS: NOT IMPLEMENTED / IMPLEMENTATION_NOT_STARTED
+STATUS: PHASE_A_CONTRACTS_ESTABLISHED
+IMPLEMENTATION STATUS:
+  - Phase A (Contracts & Boundaries): IMPLEMENTED NOW (src/gate/, tests/gate/)
+  - Phase B-F (Gate Runtime & Transport): NOT IMPLEMENTED / TARGET ARCHITECTURE
 CANONICAL TARGET BASELINE: v0.2
-GOVERNANCE FREEZE DATE: 2026-09-14
+GOVERNANCE CHECKPOINT: 2026-09-14
 ```
 
 ---
@@ -421,15 +423,15 @@ CLASSIFICATION: TARGET TEST SUITE (TO BE IMPLEMENTED IN PHASE E)
 ## Implementation Phases
 
 ```text
-CLASSIFICATION: PROPOSED ROADMAP (EXECUTION TO OCCUR IN SUBSEQUENT PHASES)
+CLASSIFICATION: ROADMAP & STATUS
 ```
 
-- **Phase A — Contracts & Types:** Definir interfaces TypeScript no PDL e schemas de eventos no Neural.
-- **Phase B — Neural Query Adapter:** Provisionar o adaptador de rede do Neural expondo `/v1/query` e `/v1/experience`.
-- **Phase C — PDL Pre-Execution Context:** Implementar `query()` no client do PDL e integrar ao `ContextAssemblyEngine`.
-- **Phase D — Experience Writeback:** Integrar `recordPostTaskExperience()` ao ciclo pós-Persistence Gate.
-- **Phase E — Validation / Tests:** Executar a matriz completa de 17 testes automatizados com mocks determinísticos.
-- **Phase F — Controlled E2E:** Validação ponta a ponta com repositório piloto em ambiente controlado.
+- **Phase A — Contracts & Boundaries:** `CONTRACTS & BOUNDARIES IMPLEMENTED` (Canonical typed DTOs, closed enums, structural validation, serialization/deserialization, authority metadata, and 12-scenario test suite in `src/gate/` and `tests/gate/test_gate_contracts.py`).
+- **Phase B — Neural Query Adapter:** `NOT IMPLEMENTED / TARGET` Provisionar o adaptador de rede do Neural expondo `/v1/query` e `/v1/experience`.
+- **Phase C — PDL Pre-Execution Context:** `NOT IMPLEMENTED / TARGET` Implementar `query()` no client do PDL e integrar ao `ContextAssemblyEngine`.
+- **Phase D — Experience Writeback:** `NOT IMPLEMENTED / TARGET` Integrar `recordPostTaskExperience()` ao ciclo pós-Persistence Gate.
+- **Phase E — Validation / Tests:** `NOT IMPLEMENTED / TARGET` Executar a matriz completa de testes de integração com mocks determinísticos.
+- **Phase F — Controlled E2E:** `NOT IMPLEMENTED / TARGET` Validação ponta a ponta com repositório piloto em ambiente controlado.
 
 ---
 
