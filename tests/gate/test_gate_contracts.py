@@ -615,6 +615,52 @@ class TestBidirectionalGateContracts(unittest.TestCase):
         self.assertEqual(reconstructed_gf.status, GateStatus.UNAVAILABLE)
         self.assertEqual(reconstructed_gf.details["port"], 5432)
 
+    # -------------------------------------------------------------------------
+    # Scenario 13: Correlation & Execution Identity Contract
+    # -------------------------------------------------------------------------
+    def test_13_correlation_and_execution_identity(self):
+        """Verify that executionId and correlationId are preserved across query and experience contracts."""
+        caller = CallerIdentity(
+            actor_id="agent:pdl:worker-1",
+            agent_role=AgentRole.DEVELOPER,
+        )
+        req = NeuralQueryRequest(
+            request_id="req-corr-001",
+            task_id="task-corr-100",
+            execution_id="exec-corr-200",
+            correlation_id="corr-thread-300",
+            project_id="pub-dev-loop",
+            repository="pubcoreagencia/pub-dev-loop",
+            objective="Retrieve correlation rules",
+            requested_knowledge_classes=[KnowledgeClass.RULE],
+            caller=caller,
+            timestamp="2026-09-14T12:00:00Z",
+        )
+        d = req.to_dict()
+        self.assertEqual(d["executionId"], "exec-corr-200")
+        self.assertEqual(d["correlationId"], "corr-thread-300")
+        self.assertEqual(d["taskId"], "task-corr-100")
+
+        reconstructed_req = NeuralQueryRequest.from_dict(d)
+        self.assertEqual(reconstructed_req.execution_id, "exec-corr-200")
+        self.assertEqual(reconstructed_req.correlation_id, "corr-thread-300")
+        self.assertEqual(reconstructed_req.task_id, "task-corr-100")
+
+        # Response
+        resp = NeuralQueryResponse(
+            request_id="req-corr-001",
+            status=GateStatus.SUCCESS,
+            task_id="task-corr-100",
+            execution_id="exec-corr-200",
+            correlation_id="corr-thread-300",
+        )
+        resp_dict = resp.to_dict()
+        self.assertEqual(resp_dict["executionId"], "exec-corr-200")
+        self.assertEqual(resp_dict["correlationId"], "corr-thread-300")
+        reconstructed_resp = NeuralQueryResponse.from_dict(resp_dict)
+        self.assertEqual(reconstructed_resp.execution_id, "exec-corr-200")
+        self.assertEqual(reconstructed_resp.correlation_id, "corr-thread-300")
+
 
 if __name__ == "__main__":
     unittest.main()

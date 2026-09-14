@@ -416,6 +416,8 @@ class NeuralQueryRequest:
     commit_sha: Optional[str] = None
     filters: Optional[Dict[str, Any]] = None
     limit: int = 5
+    execution_id: Optional[str] = None
+    correlation_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         self.request_id = _validate_non_empty_str(self.request_id, "request_id")
@@ -424,6 +426,11 @@ class NeuralQueryRequest:
         self.repository = _validate_non_empty_str(self.repository, "repository")
         self.objective = _validate_non_empty_str(self.objective, "objective")
         self.timestamp = _validate_iso_timestamp(self.timestamp, "timestamp")
+
+        if self.execution_id is not None:
+            self.execution_id = str(self.execution_id).strip()
+        if self.correlation_id is not None:
+            self.correlation_id = str(self.correlation_id).strip()
 
         if not isinstance(self.caller, CallerIdentity):
             raise GateValidationError("caller must be a CallerIdentity instance", field="caller")
@@ -462,15 +469,24 @@ class NeuralQueryRequest:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "request_id": self.request_id,
+            "requestId": self.request_id,
             "task_id": self.task_id,
+            "taskId": self.task_id,
+            "execution_id": self.execution_id,
+            "executionId": self.execution_id,
+            "correlation_id": self.correlation_id,
+            "correlationId": self.correlation_id,
             "project_id": self.project_id,
+            "projectId": self.project_id,
             "repository": self.repository,
             "objective": self.objective,
             "requested_knowledge_classes": [k.value for k in self.requested_knowledge_classes],
+            "requestedKnowledgeClasses": [k.value for k in self.requested_knowledge_classes],
             "caller": self.caller.to_dict(),
             "timestamp": self.timestamp,
             "branch": self.branch,
             "commit_sha": self.commit_sha,
+            "commitSha": self.commit_sha,
             "filters": self.filters or {},
             "limit": self.limit,
         }
@@ -479,23 +495,25 @@ class NeuralQueryRequest:
     def from_dict(cls, data: Dict[str, Any]) -> "NeuralQueryRequest":
         if not isinstance(data, dict):
             raise GateValidationError("Query request payload must be a dictionary")
-        classes_raw = data.get("requested_knowledge_classes")
+        classes_raw = data.get("requested_knowledge_classes", data.get("requestedKnowledgeClasses"))
         if classes_raw is None:
             raise GateValidationError("Field 'requested_knowledge_classes' is required", field="requested_knowledge_classes")
 
         return cls(
-            request_id=data.get("request_id", ""),
-            task_id=data.get("task_id", ""),
-            project_id=data.get("project_id", ""),
+            request_id=data.get("request_id", data.get("requestId", "")),
+            task_id=data.get("task_id", data.get("taskId", "")),
+            project_id=data.get("project_id", data.get("projectId", "")),
             repository=data.get("repository", ""),
             objective=data.get("objective", ""),
             requested_knowledge_classes=classes_raw,
             caller=CallerIdentity.from_dict(data.get("caller", {})),
             timestamp=data.get("timestamp", ""),
             branch=data.get("branch"),
-            commit_sha=data.get("commit_sha"),
+            commit_sha=data.get("commit_sha", data.get("commitSha")),
             filters=data.get("filters"),
             limit=data.get("limit", 5),
+            execution_id=data.get("execution_id", data.get("executionId")),
+            correlation_id=data.get("correlation_id", data.get("correlationId")),
         )
 
     def to_json(self) -> str:
@@ -523,10 +541,20 @@ class NeuralQueryResponse:
     reason: Optional[str] = None
     contradictions: List[ContradictionItem] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    task_id: Optional[str] = None
+    execution_id: Optional[str] = None
+    correlation_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         self.request_id = _validate_non_empty_str(self.request_id, "request_id")
         self.status = GateStatus.from_str(self.status)
+
+        if self.task_id is not None:
+            self.task_id = str(self.task_id).strip()
+        if self.execution_id is not None:
+            self.execution_id = str(self.execution_id).strip()
+        if self.correlation_id is not None:
+            self.correlation_id = str(self.correlation_id).strip()
 
         # Domain Invariants
         if self.status == GateStatus.NO_MATCH and len(self.results) > 0:
@@ -572,14 +600,23 @@ class NeuralQueryResponse:
         return sorted(list(refs))
 
     def to_dict(self) -> Dict[str, Any]:
+        serialized_results = [item.to_dict() for item in self.results]
         return {
             "request_id": self.request_id,
+            "requestId": self.request_id,
             "status": self.status.value,
-            "results": [item.to_dict() for item in self.results],
+            "results": serialized_results,
+            "evidence": serialized_results,
             "abstention": self.abstention.to_dict() if self.abstention else None,
             "reason": self.reason,
             "contradictions": [c.to_dict() for c in self.contradictions],
             "metadata": self.metadata,
+            "task_id": self.task_id,
+            "taskId": self.task_id,
+            "execution_id": self.execution_id,
+            "executionId": self.execution_id,
+            "correlation_id": self.correlation_id,
+            "correlationId": self.correlation_id,
             "source_references": self.source_references,
             "event_references": self.event_references,
             "evidence_references": self.evidence_references,
@@ -590,7 +627,7 @@ class NeuralQueryResponse:
         if not isinstance(data, dict):
             raise GateValidationError("Query response payload must be a dictionary")
 
-        results_data = data.get("results", [])
+        results_data = data.get("results", data.get("evidence", []))
         items = [NeuralKnowledgeItem.from_dict(item) for item in results_data]
 
         abst_data = data.get("abstention")
@@ -600,13 +637,16 @@ class NeuralQueryResponse:
         contradictions = [ContradictionItem.from_dict(c) for c in contra_data]
 
         return cls(
-            request_id=data.get("request_id", ""),
+            request_id=data.get("request_id", data.get("requestId", "")),
             status=GateStatus.from_str(data.get("status", GateStatus.INTERNAL_ERROR.value)),
             results=items,
             abstention=abstention,
             reason=data.get("reason"),
             contradictions=contradictions,
             metadata=data.get("metadata", {}),
+            task_id=data.get("task_id", data.get("taskId")),
+            execution_id=data.get("execution_id", data.get("executionId")),
+            correlation_id=data.get("correlation_id", data.get("correlationId")),
         )
 
     def to_json(self) -> str:
@@ -729,6 +769,8 @@ class NeuralExperienceRecord:
     candidate_findings: List[CandidateFinding] = field(default_factory=list)
     trace: Optional[Dict[str, Any]] = None
     ingestion_source: str = "pdl-bidirectional-gate"
+    execution_id: Optional[str] = None
+    correlation_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         self.task_id = _validate_non_empty_str(self.task_id, "task_id")
@@ -740,6 +782,11 @@ class NeuralExperienceRecord:
         self.ingestion_source = _validate_non_empty_str(self.ingestion_source, "ingestion_source")
         self.status = TaskExecutionStatus.from_str(self.status)
 
+        if self.execution_id is not None:
+            self.execution_id = str(self.execution_id).strip()
+        if self.correlation_id is not None:
+            self.correlation_id = str(self.correlation_id).strip()
+
         if not isinstance(self.evidence, TaskEvidence):
             raise GateValidationError("evidence must be a TaskEvidence instance", field="evidence")
 
@@ -749,20 +796,33 @@ class NeuralExperienceRecord:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "taskId": self.task_id,
+            "task_id": self.task_id,
+            "executionId": self.execution_id,
+            "execution_id": self.execution_id,
+            "correlationId": self.correlation_id,
+            "correlation_id": self.correlation_id,
             "projectId": self.project_id,
+            "project_id": self.project_id,
             "repository": self.repository,
             "branch": self.branch,
             "commitSha": self.commit_sha,
+            "commit_sha": self.commit_sha,
             "remoteSha": self.remote_sha,
+            "remote_sha": self.remote_sha,
             "status": self.status.value,
             "objective": self.objective,
             "agentId": self.agent_id,
+            "agent_id": self.agent_id,
             "changedFiles": self.changed_files,
+            "changed_files": self.changed_files,
             "evidence": self.evidence.to_dict(),
             "candidateFindings": [f.to_dict() for f in self.candidate_findings],
+            "candidate_findings": [f.to_dict() for f in self.candidate_findings],
             "trace": self.trace,
             "completedAt": self.completed_at,
+            "completed_at": self.completed_at,
             "ingestionSource": self.ingestion_source,
+            "ingestion_source": self.ingestion_source,
         }
 
     @classmethod
@@ -793,6 +853,8 @@ class NeuralExperienceRecord:
             trace=data.get("trace"),
             completed_at=data.get("completedAt", data.get("completed_at", "")),
             ingestion_source=data.get("ingestionSource", data.get("ingestion_source", "pdl-bidirectional-gate")),
+            execution_id=data.get("executionId", data.get("execution_id")),
+            correlation_id=data.get("correlationId", data.get("correlation_id")),
         )
 
     def to_json(self) -> str:
@@ -860,10 +922,16 @@ class ExperienceIngestionResult:
     recorded_at: Optional[str] = None
     reason: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    execution_id: Optional[str] = None
+    correlation_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         self.status = ExperienceWritebackStatus.from_str(self.status)
         self.task_id = _validate_non_empty_str(self.task_id, "task_id") if self.task_id else "unknown"
+        if self.execution_id is not None:
+            self.execution_id = str(self.execution_id).strip()
+        if self.correlation_id is not None:
+            self.correlation_id = str(self.correlation_id).strip()
 
     @property
     def is_accepted(self) -> bool:
@@ -873,11 +941,21 @@ class ExperienceIngestionResult:
         return {
             "status": self.status.value,
             "taskId": self.task_id,
+            "task_id": self.task_id,
+            "executionId": self.execution_id,
+            "execution_id": self.execution_id,
+            "correlationId": self.correlation_id,
+            "correlation_id": self.correlation_id,
             "eventId": self.event_id,
+            "event_id": self.event_id,
             "idempotencyKey": self.idempotency_key,
+            "idempotency_key": self.idempotency_key,
             "isDuplicate": self.is_duplicate,
+            "is_duplicate": self.is_duplicate,
             "candidateFindingsCount": self.candidate_findings_count,
+            "candidate_findings_count": self.candidate_findings_count,
             "recordedAt": self.recorded_at,
+            "recorded_at": self.recorded_at,
             "reason": self.reason,
             "metadata": self.metadata,
         }
@@ -896,6 +974,8 @@ class ExperienceIngestionResult:
             recorded_at=data.get("recordedAt", data.get("recorded_at")),
             reason=data.get("reason"),
             metadata=data.get("metadata", {}),
+            execution_id=data.get("executionId", data.get("execution_id")),
+            correlation_id=data.get("correlationId", data.get("correlation_id")),
         )
 
     def to_json(self) -> str:

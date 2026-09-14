@@ -46,12 +46,18 @@ class NeuralQueryService:
             try:
                 validated_req = NeuralQueryRequest.from_dict(request)
             except Exception as e:
-                req_id = str(request.get("request_id", "unknown")) if isinstance(request, dict) else "unknown"
+                req_id = str(request.get("request_id", request.get("requestId", "unknown"))) if isinstance(request, dict) else "unknown"
+                t_id = request.get("task_id", request.get("taskId")) if isinstance(request, dict) else None
+                e_id = request.get("execution_id", request.get("executionId")) if isinstance(request, dict) else None
+                c_id = request.get("correlation_id", request.get("correlationId")) if isinstance(request, dict) else None
                 return NeuralQueryResponse(
                     request_id=req_id,
                     status=GateStatus.INVALID_REQUEST,
                     results=[],
                     reason=f"Structural request validation failed: {e}",
+                    task_id=t_id,
+                    execution_id=e_id,
+                    correlation_id=c_id,
                 )
         elif isinstance(request, NeuralQueryRequest):
             validated_req = request
@@ -62,6 +68,10 @@ class NeuralQueryService:
                 results=[],
                 reason=f"Invalid request type: expected NeuralQueryRequest or dict, got {type(request).__name__}",
             )
+
+        task_id = validated_req.task_id
+        execution_id = validated_req.execution_id
+        correlation_id = validated_req.correlation_id
 
         # 2. Query Retrieval Engine
         try:
@@ -79,6 +89,9 @@ class NeuralQueryService:
                 status=GateStatus.UNAVAILABLE,
                 results=[],
                 reason=f"Retrieval backend unavailable: {e}",
+                task_id=task_id,
+                execution_id=execution_id,
+                correlation_id=correlation_id,
             )
         except (ConnectionError, TimeoutError, OSError) as e:
             return NeuralQueryResponse(
@@ -86,6 +99,9 @@ class NeuralQueryService:
                 status=GateStatus.UNAVAILABLE,
                 results=[],
                 reason=f"Retrieval network/service unreachable: {e}",
+                task_id=task_id,
+                execution_id=execution_id,
+                correlation_id=correlation_id,
             )
         except Exception as e:
             err_name = type(e).__name__
@@ -95,12 +111,18 @@ class NeuralQueryService:
                     status=GateStatus.UNAVAILABLE,
                     results=[],
                     reason=f"Database connection error: {e}",
+                    task_id=task_id,
+                    execution_id=execution_id,
+                    correlation_id=correlation_id,
                 )
             return NeuralQueryResponse(
                 request_id=validated_req.request_id,
                 status=GateStatus.INTERNAL_ERROR,
                 results=[],
                 reason=f"Internal retrieval processing error: {e}",
+                task_id=task_id,
+                execution_id=execution_id,
+                correlation_id=correlation_id,
             )
 
         if not isinstance(batch, RetrievalBatch):
@@ -109,6 +131,9 @@ class NeuralQueryService:
                 status=GateStatus.INTERNAL_ERROR,
                 results=[],
                 reason=f"Retrieval engine returned invalid batch type: {type(batch).__name__}",
+                task_id=task_id,
+                execution_id=execution_id,
+                correlation_id=correlation_id,
             )
 
         # 3. Evaluate Abstention
@@ -132,6 +157,9 @@ class NeuralQueryService:
                 abstention=abst_meta,
                 reason=f"Retrieval abstention policy rejected low-confidence candidates: {decision.reason}",
                 metadata=batch.metadata,
+                task_id=task_id,
+                execution_id=execution_id,
+                correlation_id=correlation_id,
             )
 
         # 4. Map results to NeuralKnowledgeItem
@@ -157,6 +185,9 @@ class NeuralQueryService:
                 results=[],
                 reason=f"No matching knowledge found for query '{validated_req.objective}'",
                 metadata=batch.metadata,
+                task_id=task_id,
+                execution_id=execution_id,
+                correlation_id=correlation_id,
             )
 
         # 7. Check CONFLICT (explicit contradictory state in batch or items)
@@ -178,6 +209,9 @@ class NeuralQueryService:
                 contradictions=contradictions,
                 reason="Contradictory knowledge detected across retrieved results",
                 metadata=batch.metadata,
+                task_id=task_id,
+                execution_id=execution_id,
+                correlation_id=correlation_id,
             )
 
         # 8. Check STALE
@@ -188,6 +222,9 @@ class NeuralQueryService:
                 results=filtered_items,
                 reason="Retrieved knowledge contains stale or diverged references",
                 metadata=batch.metadata,
+                task_id=task_id,
+                execution_id=execution_id,
+                correlation_id=correlation_id,
             )
 
         # 9. SUCCESS
@@ -196,4 +233,7 @@ class NeuralQueryService:
             status=GateStatus.SUCCESS,
             results=filtered_items,
             metadata=batch.metadata,
+            task_id=task_id,
+            execution_id=execution_id,
+            correlation_id=correlation_id,
         )

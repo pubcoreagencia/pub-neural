@@ -139,10 +139,14 @@ class NeuralExperienceService:
                 validated_record = NeuralExperienceRecord.from_dict(experience)
             except Exception as e:
                 task_id = str(experience.get("taskId", experience.get("task_id", "unknown")))
+                e_id = experience.get("executionId", experience.get("execution_id"))
+                c_id = experience.get("correlationId", experience.get("correlation_id"))
                 return ExperienceIngestionResult(
                     status=ExperienceWritebackStatus.INVALID_REQUEST,
                     task_id=task_id,
                     reason=f"Structural experience validation failed: {e}",
+                    execution_id=e_id,
+                    correlation_id=c_id,
                 )
         elif isinstance(experience, NeuralExperienceRecord):
             validated_record = experience
@@ -152,6 +156,9 @@ class NeuralExperienceService:
                 task_id="unknown",
                 reason=f"Invalid experience type: expected NeuralExperienceRecord or dict, got {type(experience).__name__}",
             )
+
+        execution_id = validated_record.execution_id
+        correlation_id = validated_record.correlation_id
 
         # 2. Invariant: Candidate findings must remain strictly CANDIDATE
         # Never promote automatically to VALIDATED or ADOPTED
@@ -175,18 +182,24 @@ class NeuralExperienceService:
                     recorded_at=existing.get("created_at"),
                     reason="Duplicate experience record acknowledged (idempotent)",
                     metadata={"idempotent_replay": True},
+                    execution_id=execution_id,
+                    correlation_id=correlation_id,
                 )
         except GateTransportError as e:
             return ExperienceIngestionResult(
                 status=ExperienceWritebackStatus.UNAVAILABLE,
                 task_id=validated_record.task_id,
                 reason=f"Idempotency storage backend unavailable: {e}",
+                execution_id=execution_id,
+                correlation_id=correlation_id,
             )
         except (ConnectionError, TimeoutError, OSError) as e:
             return ExperienceIngestionResult(
                 status=ExperienceWritebackStatus.UNAVAILABLE,
                 task_id=validated_record.task_id,
                 reason=f"Idempotency backend unreachable: {e}",
+                execution_id=execution_id,
+                correlation_id=correlation_id,
             )
         except Exception as e:
             err_name = type(e).__name__
@@ -195,11 +208,15 @@ class NeuralExperienceService:
                     status=ExperienceWritebackStatus.UNAVAILABLE,
                     task_id=validated_record.task_id,
                     reason=f"Database connection error during idempotency check: {e}",
+                    execution_id=execution_id,
+                    correlation_id=correlation_id,
                 )
             return ExperienceIngestionResult(
                 status=ExperienceWritebackStatus.INTERNAL_ERROR,
                 task_id=validated_record.task_id,
                 reason=f"Unexpected error during idempotency evaluation: {e}",
+                execution_id=execution_id,
+                correlation_id=correlation_id,
             )
 
         # 4. Event Generation and Persistence
@@ -210,6 +227,8 @@ class NeuralExperienceService:
         # Preserve canonical execution payload ensuring Candidate != Validated
         event_payload = validated_record.to_dict()
         event_payload["candidateState"] = PromotionState.CANDIDATE.value
+        event_payload["executionId"] = execution_id
+        event_payload["correlationId"] = correlation_id
 
         try:
             seq = self.sink.append_canonical_event(
@@ -229,6 +248,8 @@ class NeuralExperienceService:
                 candidate_findings_count=candidate_count,
                 recorded_at=datetime.now(timezone.utc).isoformat(),
                 metadata={"global_sequence": seq},
+                execution_id=execution_id,
+                correlation_id=correlation_id,
             )
 
             # Record idempotency record
@@ -246,12 +267,16 @@ class NeuralExperienceService:
                 status=ExperienceWritebackStatus.UNAVAILABLE,
                 task_id=validated_record.task_id,
                 reason=f"Event sourcing backend unavailable: {e}",
+                execution_id=execution_id,
+                correlation_id=correlation_id,
             )
         except (ConnectionError, TimeoutError, OSError) as e:
             return ExperienceIngestionResult(
                 status=ExperienceWritebackStatus.UNAVAILABLE,
                 task_id=validated_record.task_id,
                 reason=f"Event sourcing backend connection failed: {e}",
+                execution_id=execution_id,
+                correlation_id=correlation_id,
             )
         except Exception as e:
             err_name = type(e).__name__
@@ -260,9 +285,13 @@ class NeuralExperienceService:
                     status=ExperienceWritebackStatus.UNAVAILABLE,
                     task_id=validated_record.task_id,
                     reason=f"Database operational failure during event append: {e}",
+                    execution_id=execution_id,
+                    correlation_id=correlation_id,
                 )
             return ExperienceIngestionResult(
                 status=ExperienceWritebackStatus.INTERNAL_ERROR,
                 task_id=validated_record.task_id,
                 reason=f"Unexpected internal error during experience persistence: {e}",
+                execution_id=execution_id,
+                correlation_id=correlation_id,
             )
