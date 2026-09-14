@@ -116,6 +116,9 @@ class NeuralResultMapper:
         """
         Transform a single raw retrieval result into a canonical NeuralKnowledgeItem.
         """
+        if isinstance(raw, NeuralKnowledgeItem):
+            return raw
+
         target_id = str(self._extract_attr(raw, "target_id", self._extract_attr(raw, "id", "item-unknown")))
         title = self._extract_attr(raw, "title", self._extract_attr(raw, "node_title", target_id))
         content = self._extract_attr(

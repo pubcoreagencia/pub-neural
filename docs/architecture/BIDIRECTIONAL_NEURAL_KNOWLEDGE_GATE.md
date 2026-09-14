@@ -3,7 +3,7 @@
 ## Status
 
 ```text
-STATUS: PHASE_E2_POST_TASK_EXPERIENCE_GATE_ACTIVATED
+STATUS: PHASE_F_CONTROLLED_E2E_VALIDATION_COMPLETED
 IMPLEMENTATION STATUS:
   - Phase A (Contracts & Boundaries): IMPLEMENTED (src/gate/models.py, src/gate/enums.py)
   - Phase B (Neural Query Service): IMPLEMENTED (src/gate/service.py, src/gate/retrieval_adapter.py, tests/gate/test_query_service.py)
@@ -11,7 +11,8 @@ IMPLEMENTATION STATUS:
   - Phase D (Experience Writeback): IMPLEMENTED (src/gate/experience_service.py, tests/gate/test_experience_service.py, and pubcoreagencia/pub-dev-loop: src/pdl/neural/experience-types.ts, src/pdl/neural/experience-transport.ts, src/pdl/neural/experience-adapter.ts, tests/pdl/neural-experience-adapter.test.ts)
   - Phase E1 (Pre-Task Knowledge Gate): IMPLEMENTED (pubcoreagencia/pub-dev-loop: src/pdl/neural/pre-task-gate.ts, src/office/context-assembly.ts, src/router-worker.ts, tests/pdl/pre-task-knowledge-gate.test.ts)
   - Phase E2 (Post-Task Experience Gate): IMPLEMENTED (pubcoreagencia/pub-dev-loop: src/pdl/neural/post-task-gate.ts, src/pdl/neural/neural-bridge.ts, src/worker-service.ts, src/router-worker.ts, src/pdl/worker/correction-worker.ts, tests/pdl/post-task-experience-gate.test.ts)
-  - Phase F (Controlled E2E Gate Integration): NOT IMPLEMENTED / TARGET ARCHITECTURE
+  - Phase F (Controlled E2E Gate Integration): IMPLEMENTED & VALIDATED (In-process/CLI bridge runner in src/gate/bridge_runner.py, tests/gate/test_bridge_runner.py; Controlled process transport in pubcoreagencia/pub-dev-loop: tests/e2e/neural-gate/controlled-transport.ts, tests/e2e/neural-gate/pilot-fixture.ts, and 20-scenario E2E test suite in tests/e2e/neural-gate/neural-gate-e2e.test.ts)
+  - Production Network Integration / Daemon / HTTP: NOT IMPLEMENTED (Phase F is strictly controlled in-process/CLI E2E validation; NO production network daemon, REST API, or MCP server)
 CANONICAL TARGET BASELINE: v0.2
 GOVERNANCE CHECKPOINT: 2026-09-14
 ```
@@ -450,7 +451,32 @@ CLASSIFICATION: ROADMAP & STATUS
     - `E2 = WRITE PATH ACTIVE`
     - `E1 + E2 = BIDIRECTIONAL RUNTIME FOUNDATION`
     - `E1 + E2 ≠ AUTONOMOUS COGNITIVE LOOP`
-- **Phase F — Controlled E2E:** `NOT IMPLEMENTED / TARGET` Validação ponta a ponta com repositório piloto em ambiente controlado.
+- **Phase F — Controlled End-to-End Gate Integration:** `CONTROLLED E2E VALIDATED`
+  - *PILOT REPOSITORY:* `pubcoreagencia/pub-ecom` (project `pub-ecom`).
+  - *REAL DOMAIN SERVICES PROVED:* Real `NeuralQueryService` and `NeuralExperienceService` in PUB NEURAL connected to real `PreTaskKnowledgeGate`, `PostTaskExperienceGate`, and `DefaultPubNeuralBridge` in PDL.
+  - *CONTROLLED TRANSPORT:* Cross-repository process/stdin boundary via `src/gate/bridge_runner.py` in PUB NEURAL and `tests/e2e/neural-gate/controlled-transport.ts` in PDL. Zero TCP socket opening, zero background HTTP daemon, zero MCP server.
+  - *20 CANONICAL SCENARIOS VALIDATED (100% PASS):*
+    1. Full read path (query -> context -> task ready)
+    2. Full write path (completed task -> experience -> sink/event)
+    3. Read + execute (query context present during execution)
+    4. Execute + write (finalized execution generates writeback)
+    5. Read -> execute -> write full cycle
+    6. Provenance continuity (read provenance preserved; write provenance records commit/sha/actor)
+    7. Task/request correlation (taskId consistent across read, context, execution, write)
+    8. Candidate preservation (candidate findings preserved strictly as CANDIDATE)
+    9. Event creation (TASK_EXPERIENCE_RECORDED emitted with correct payload and stream)
+    10. Idempotent writeback (initial writeback ACCEPTED, second writeback DUPLICATE)
+    11. Query unavailable (fail-open: task execution proceeds without failure)
+    12. Writeback unavailable (fail-open: verified task outcome remains completed/valid)
+    13. Data-only enforcement ("ignore previous instructions" neutralized as inert data, zero instruction execution)
+    14. Governance remains authoritative (Neural does not authorize or reject execution)
+    15. Git/runtime evidence remains authoritative (evidence comes from Git/runtime, not Neural)
+    16. Exactly one query (no redundant query loops during intake/assembly)
+    17. Exactly one final writeback (no intermediate writebacks before finalization)
+    18. No retry writeback duplication (worker retry attempts do not trigger writeback)
+    19. Final outcome only (writeback triggered only at terminal finalization)
+    20. No automatic promotion (candidate findings remain CANDIDATE in storage/events)
+  - *CRITICAL ARCHITECTURAL DISTINCTION:* Phase F constitutes CONTROLLED E2E VALIDATION. It is explicitly NOT a production network integration. Production HTTP daemon, REST servers, MCP servers, and autonomous cognitive loops remain unbuilt and unapproved pending formal production deployment phases.
 
 ---
 
