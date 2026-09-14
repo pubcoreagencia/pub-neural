@@ -291,9 +291,22 @@ Treat documented architecture as intent, not proof of implementation.
 
 Role: rapid interface/product prototyping environment.
 
-Verified context state: `EM DEV / GITHUB`, priority `HIGH`.
+Verified context state: `EM DEV / GITHUB`, priority `HIGH`.  
+Verified base commit: `24da7e94e1a9e50b9eddf9ea1f00cf37b466bf73` (`HEAD == origin/main`, working tree clean).  
+Canonical benchmark: [`docs/benchmarks/PP_AGENTIC_CAPABILITY_BENCHMARK_2026-09-14.md`](./docs/benchmarks/PP_AGENTIC_CAPABILITY_BENCHMARK_2026-09-14.md).
+
+Proven agentic capability:
+- Codebase inspection prior to mutation (read-before-write discipline).
+- Surgical alteration of target files (`index.html`, `script.js`) with byte-for-byte preservation of non-target files.
+- Automated validation via build, preview and security checks.
+- Fail-closed execution under upstream provider timeouts (zero side-effects, zero corrupted files).
+
+Operational rule on models:
+- `openrouter/free` is suitable for short/medium exploratory tasks when availability permits.
+- `openrouter/free` is NOT deterministic infrastructure for critical workloads due to high provider variability (HTTP 429, timeouts).
 
 **PP must remain isolated from PDL.** Neural may know both, but every knowledge item must retain project scope.
+
 
 ### PUB NEURAL
 `pubcoreagencia/pub-neural`
@@ -721,3 +734,78 @@ Current PUB Core OS
 ```
 
 This investigation must remain read-only until an explicit migration/restore instruction is provided.
+
+---
+
+## 18. VERIFIED PUB PROTOTYPE AGENTIC CAPABILITY BENCHMARK
+
+**Recorded:** 2026-09-14  
+**Knowledge class:** `EPISODIC + SEMANTIC + PROCEDURAL + LESSON + EVIDENCE`  
+**Scope:** `PUB PROTOTYPE / AGENTIC WORKER CAPABILITY`  
+**Status:** `VALIDATED`  
+**Confidence:** `HIGH`  
+**Canonical benchmark report:** [`docs/benchmarks/PP_AGENTIC_CAPABILITY_BENCHMARK_2026-09-14.md`](./docs/benchmarks/PP_AGENTIC_CAPABILITY_BENCHMARK_2026-09-14.md)
+
+An operational evaluation of autonomous agentic capabilities was conducted on PUB Prototype (PP). The results demonstrate real and operational capability for short and medium development tasks, alongside clear architectural boundaries regarding the OpenRouter FREE model tier.
+
+### 18.1 Evaluated System & Base State
+
+- **System:** PUB Prototype autonomous worker
+- **Repository:** `pubcoreagencia/pub-prototype`
+- **Official Base Commit:** `24da7e94e1a9e50b9eddf9ea1f00cf37b466bf73` (`HEAD == origin/main`, working tree clean)
+- **Fixture Repository:** `https://github.com/pubcoreagencia/pub-dev-loop-prototypes.git`
+- **Execution Workspace Commits:** `3537dec4b184cd03df5e73162db39c9294b89e45` and `4742d600c48c879184c49044408a5e02663ccbae`  
+  *(Note: these were generated in the execution workspace/fixture, NOT in `pub-prototype`. The official commit of `pub-prototype` remains `24da7e94e1a9e50b9eddf9ea1f00cf37b466bf73`)*.
+
+### 18.2 Provider & Routing Configuration
+
+- **Configured Variable:** `OPENROUTER_MODEL=openrouter/free`
+- **Configured Routing:** `openrouter/free`
+- **Effectively Observed Model:** `cohere/north-mini-code:free` (selected by OpenRouter router in successful runs)
+
+### 18.3 Test Cases & Proven Outcomes
+
+| Case ID | Status | Tool Calls | Effective Model | Checkpoint / Session / Details |
+|---|:---:|:---:|---|---|
+| **Model Verification** | `PASS` | 2 | `cohere/north-mini-code:free` | Checkpoint: `70cffaa00d873c906e1a4f9636a007a36ecebdfa`<br>`write_file` executed, build `PASS` |
+| **PP-AGENT-QUALITY-02** | `PASS` | >0 | `cohere/north-mini-code:free` | Code inspection before edit, surgical alteration of `index.html`, byte-for-byte preservation of `script.js`, validation, build, preview, security |
+| **PP-AGENT-QUALITY-03** | `PASS` | >0 | `cohere/north-mini-code:free` | Session: `1087c1b5-ba63-41e1-ba29-882f4f048ebb`<br>Task: `1a864d61-4632-43a3-a054-87815285234d`<br>Checkpoint: `897053ad-edcf-46d2-ae40-61c1a1d5ce59`<br>DOM structure discovery, search by client/service, case-insensitive, empty state, reset, surgical edit of `script.js`, build, preview, validation |
+| **PP-AGENT-QUALITY-04** | `BLOCKED` | 0 | Unresponsive | 120s timeout exceeded; 0 tool calls; 0 file mutations; build/preview not run.<br>**Diagnostic:** Upstream provider availability timeout; NOT an agent reasoning failure. Fail-closed safety proved. |
+| **PP-AGENT-QUALITY-05** | `PASS` | >0 | `cohere/north-mini-code:free` | Session: `a5e594e9-f484-42e2-ac0d-ae92605b186e`<br>Task: `ad488576-731b-4bd0-bd42-e242710419ab`<br>Checkpoint: `10a50a38-0ee5-49a7-88b3-eb2ae2d79cf1`<br>Objective defect diagnosis, surgical whitespace normalization fix (`trim()`), feature preservation, build, preview, validation |
+
+### 18.4 Proven Operational Capabilities
+
+PUB Prototype proved 11 distinct agentic capabilities:
+1. Understanding existing context without prior fine-tuning.
+2. Read-before-write inspection of source files.
+3. Deciding where to make surgical edits.
+4. Correct and disciplined tool-call execution.
+5. Modifying code surgically with zero unrelated edits.
+6. Preserving scope and unedited files byte-for-byte.
+7. Post-alteration validation of results.
+8. Clean build execution.
+9. Interactive preview generation.
+10. Precise diagnosis and correction of objective defects.
+11. Operating fail-closed when provider exceeds timeout (zero partial or corrupted state).
+
+### 18.5 Upstream Provider Variability & Failure Modes
+
+The primary bottleneck observed was the volatility of the OpenRouter free routing pool:
+- `nex-agi/nex-n2.5-mini:free`: Timed out on heavier tasks (>120s).
+- `google/gemma-4-31b-it:free`: Returned HTTP 429 rate limit.
+- `poolside/laguna-s-2.1:free`: Returned HTTP 429 rate limit.
+- `openrouter/free` (selecting `cohere/north-mini-code:free`): PASS on QUALITY-02, QUALITY-03, QUALITY-05, but timed out on QUALITY-04.
+
+### 18.6 Strategic & Operational Conclusion
+
+- **Operational Suitability:** `openrouter/free` is suitable for short/medium exploratory agentic tasks when provider capacity is available.
+- **Architectural Limit:** `openrouter/free` must **never** be treated as deterministic infrastructure for critical workloads or strict SLA pipelines.
+- **Fail-Closed Mandate:** Worker timeouts must always abort cleanly without mutating repository state.
+- **Classification:** Registered as **verified knowledge**, not opinion.
+
+### 18.7 Relation to Ecosystem & PDL
+
+- **PUB Prototype:** Establishes the operational baseline for the PP worker at commit `24da7e94e1a9e50b9eddf9ea1f00cf37b466bf73`.
+- **PUB Neural:** Knowledge enters in state `VALIDATED`. Future promotion to `ADOPTED` or `INSTITUTIONAL` requires ratification through actual holding-wide workflow adoption.
+- **Future Link to PDL (PUB Dev Loop):** Lessons regarding read-before-write discipline, single-file surgical edits, and free-tier volatility inform PDL worker design while strictly maintaining project isolation.
+

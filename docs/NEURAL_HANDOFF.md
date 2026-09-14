@@ -19,6 +19,7 @@ O foco operacional e de engenharia transfere-se integralmente para: **PUB PROTOT
 - **Verifier Depth ($K_{verifier}$):** 10 candidatos inspecionados
 - **Decision Policy:** `STRICT_DIRECT_ONLY` (Aggregator B Strict)
 - **Hard Negatives de Referência:** `QRY-34`, `QRY-35` (similaridade 0.677905), `QRY-36` 100% contidos.
+- **PP Agentic Capability Benchmark:** Resultados operacionais comprovados do PUB Prototype formalizados e institucionalizados como conhecimento `VALIDATED` em [`docs/benchmarks/PP_AGENTIC_CAPABILITY_BENCHMARK_2026-09-14.md`](file:///Users/user/Documents/antigravity/pub%20neural/docs/benchmarks/PP_AGENTIC_CAPABILITY_BENCHMARK_2026-09-14.md).
 
 ---
 

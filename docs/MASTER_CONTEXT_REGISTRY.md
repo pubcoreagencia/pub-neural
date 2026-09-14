@@ -18,7 +18,7 @@ Never interpret `NOT_HARVESTED` as `NOT_EXISTING`.
 | `pubcoreagencia/pub-dev-loop` | Autonomous engineering platform / THE OFFICE | verified by source | critical | `MASTER_CONTEXT.md` | CONSOLIDATED |
 | `pubcoreagencia/pub-ecom` | Commerce operator / marketplace foundation | COMPLETE / VERIFIED / FROZEN (per source) | high | `MASTER_CONTEXT.md` | CONSOLIDATED |
 | `pubcoreagencia/pub-machine` | Automated prospecting / business generation | IDEA / DESIGN | high | `MASTER_CONTEXT.md` | CONSOLIDATED |
-| `pubcoreagencia/pub-prototype` | Rapid product/interface prototyping | EM DEV / GITHUB | high | `MASTER_CONTEXT.md` | CONSOLIDATED |
+| `pubcoreagencia/pub-prototype` | Rapid product/interface prototyping | EM DEV / GITHUB | high | `MASTER_CONTEXT.md` | CONSOLIDATED (Benchmark VALIDATED) |
 | `pubcoreagencia/pub-core-os` | Institutional operating system / governance | EM DEV / GITHUB | CRITICAL | `MASTER_CONTEXT.md` | CONSOLIDATED |
 | `pubcoreagencia/pub-records` | Music / label / studio / beats | ONLINE / GITHUB | high | `MASTER_CONTEXT.md` | CONSOLIDATED |
 | `pubcoreagencia/pub-leads` | B2B prospecting / CRM / pipeline | source verified | — | `MASTER_CONTEXT.md` | CONSOLIDATED |
@@ -167,6 +167,13 @@ knowledge:
 ## Important Isolation Rule
 
 `PDL` and `PP / PUB Prototype` are separate projects. Neural may relate them, but must preserve `project_scope` and must never merge their implementation contexts into one runtime or governance boundary.
+
+### PUB Prototype Verified Baseline & Fixture Disambiguation
+- **Official Base Commit:** `pubcoreagencia/pub-prototype@24da7e94e1a9e50b9eddf9ea1f00cf37b466bf73` (`HEAD == origin/main`, clean working tree).
+- **Execution Fixture:** `pubcoreagencia/pub-dev-loop-prototypes` (workspace test fixture).
+- **Workspace Commits:** `3537dec4b184cd03df5e73162db39c9294b89e45` and `4742d600c48c879184c49044408a5e02663ccbae` are fixture workspace commits, NOT commits of `pub-prototype`.
+- **Canonical Benchmark:** [`docs/benchmarks/PP_AGENTIC_CAPABILITY_BENCHMARK_2026-09-14.md`](./benchmarks/PP_AGENTIC_CAPABILITY_BENCHMARK_2026-09-14.md) (Status: `VALIDATED`).
+
 
 ## Next Harvest Targets
 
