@@ -68,6 +68,20 @@ REPOSITORY → AUDIT → DISCOVERY → CLASSIFICATION → EXTRACTION
 → NORMALIZATION → PROVENANCE → VALIDATION → FUSION → NEURAL
 ```
 
+### Continuity Architecture
+
+```text
+CHAT        = exploração e coordenação
+PUB NEURAL  = memória e conhecimento institucional estruturado
+PDL         = execução governada
+GIT         = estado verificável e fonte de verdade versionada
+MATHEUS     = operador/CEO e autoridade final
+GPT         = orquestração
+AGENTS      = execução técnica
+```
+
+A continuidade do ecossistema não depende exclusivamente da janela de contexto volátil de uma conversa. O histórico bruto de sessões pode ser preservado, mas não constitui automaticamente conhecimento institucional. Conhecimento duradouro requer estruturação, proveniência, validação e ratificação.
+
 ---
 
 ## 3. HIERARCHY OF TRUTH
@@ -129,6 +143,37 @@ Project-specific knowledge is not automatically institutional knowledge. Promoti
 ### CEO Sovereignty
 
 Strategic, security, production and major governance decisions remain subject to the human authority defined by PUB.
+
+### Neural Context Institutionalization Rule
+
+Sempre que uma conversa, sessão de trabalho, pesquisa ou execução produzir conhecimento de valor duradouro para a PUB, esse conhecimento deve ser avaliado para institucionalização.
+
+Quando relevante:
+1. Identificar o conhecimento;
+2. Atualizar o `MASTER_CONTEXT.md` quando for contexto operacional canônico;
+3. Registrar em documentação especializada quando necessário;
+4. Criar commit;
+5. Fazer push;
+6. Verificar paridade local/remota.
+
+Princípios da Institucionalização:
+- Chat é espaço de exploração e coordenação.
+- `MASTER_CONTEXT.md` é o índice operacional canônico.
+- PUB Neural é a memória/conhecimento institucional estruturado.
+- Git é a fonte de verdade do estado versionado.
+- Runtime, Git e evidência real têm estrita precedência sobre memória histórica.
+- Nem toda conversa merece ser institucionalizada.
+- Histórico bruto não é automaticamente conhecimento institucional.
+- Conhecimento institucional deve preservar proveniência e contexto quando aplicável.
+
+### Human / Model / Executor Separation
+
+Existe uma separação explícita de autoridade operacional:
+- **OPERADOR HUMANO (Matheus / CEO):** Autoridade final, direção estratégica e decisão soberana.
+- **ORQUESTRADOR (GPT / Central):** Análise, estratégia, decomposição de tarefas e coordenação.
+- **EXECUTOR (Agentes / Workers):** Inspeção de código, implementação, testes e execução dentro do escopo estritamente autorizado.
+
+Nenhum agente executor possui autoridade superior ao operador humano.
 
 ---
 
@@ -422,6 +467,28 @@ NEURAL DATA → Obsidian
 
 Backlinks and graph views are useful for human exploration, while agents consume canonical structured knowledge.
 
+### 10.1 PUB NEURAL OBSERVATORY & PRODUCT VISION
+
+**Status:** `TARGET / FUTURE / NOT IMPLEMENTED`
+**Referência Canônica:** [`docs/architecture/PUB_NEURAL_OBSERVATORY_PRODUCT_SPEC.md`](./docs/architecture/PUB_NEURAL_OBSERVATORY_PRODUCT_SPEC.md)
+
+O PUB Neural deverá dispor futuramente de uma experiência visual interativa, convidativa e *product-ready* para exploração da memória institucional, inspirada na clareza relacional de ferramentas como Obsidian, sem se limitar a anotações pessoais.
+
+**Princípios Fundamentais:**
+- **Infrastructure-First, Product-Ready:** Nascido primeiramente como infraestrutura interna e cérebro cognitivo da holding, mas desenhado com padrão de produto para permitir futura oferta SaaS B2B sem UX puramente técnica ou inacessível.
+- **CEO-First Comprehension:** Permitir que o CEO compreenda o estado essencial da organização em segundos sem exigir domínio de detalhes de banco de dados, embeddings ou bi-temporalidade.
+
+**Camadas Arquiteturais de Produto:**
+- **NEURAL ENGINE** (`OPERACIONAL / BASELINE V0.1 CONGELADO`): Event sourcing, projeções relacionais, hybrid retrieval e RLS.
+- **NEURAL EXPERIENCE** (`DESIGN / NÃO IMPLEMENTADO`): Superfícies do Observatory:
+  - *Neural Graph:* Grafo semântico com relações causais reais (`derived_from`, `affects`, `implemented_by`, `validated_by`, `evolved_into`).
+  - *Neural Now:* Visão contextual focada em "o que importa agora?".
+  - *Context Inspector:* Inspeção profunda de significado, origem, evidências e cadeia de proveniência.
+  - *Neural Activity:* Linha do tempo baseada em eventos reais imutáveis (zero fake animations).
+  - *Knowledge Health:* Monitoramento de integridade reutilizando os estados canônicos (`VALIDATED`, `OBSERVED`, `CANDIDATE`, `CONTRADICTORY`, `STALE`, `UNVERIFIED`).
+  - *Agents View:* Representação conceitual de papéis cooperativos (*Researcher, Architect, Engineer, Reviewer, Neural*).
+- **NEURAL CLOUD** (`FUTURO / NÃO IMPLEMENTADO`): Multi-tenancy externo, federação de workspaces, cotas e faturamento.
+
 ---
 
 ## 11. MASTER CONTEXT CONSOLIDATION STRATEGY
@@ -555,6 +622,20 @@ For every relevant PUB task:
 10. Promote reusable learning when justified.
 
 **Do not assume. Verify.**
+
+### 14.1 Model Recommendation Workflow
+
+**Status:** `OPERATIONAL PROTOCOL / HUMAN DECISION SUPPORT`
+
+Toda recomendação de modelo de IA formulada por agentes ou operadores dentro do ecossistema PUB deve seguir o protocolo de verificação ativa:
+
+1. **Verificação de Catálogo Real:** Ao sugerir um modelo (ex.: OpenAI, Anthropic, Google, modelos locais/open-source), o agente/operador deve checar o catálogo real e atualizado de modelos disponíveis no momento da recomendação, ou explicitar claramente que a sugestão requer validação prévia das contas, chaves de API e provedores ativos do Matheus.
+2. **Critérios Multidimensionais de Seleção:**
+   - *Natureza da Tarefa:* Raciocínio profundo e arquitetura (*deep reasoning*) vs execução rápida/stream (*speed/latency*).
+   - *Janela de Contexto:* Volume de dados de entrada e complexidade de dependências.
+   - *Custo e Cotas:* Disponibilidade de cota, limites de taxa (*rate limits*) e viabilidade econômica para o ciclo operacional.
+   - *Complexidade do Domínio:* Nível de criticidade de governança, precisão sintática e risco de alucinação.
+3. **Ausência de Integração Dinâmica Automatizada:** Fica estritamente registrado que **não existe integração automatizada com catálogo dinâmico de modelos nesta fase**. A recomendação constitui um protocolo operacional de auxílio à decisão humana, cabendo ao operador/CEO a aprovação e seleção final do runtime de inferência.
 
 ---
 
