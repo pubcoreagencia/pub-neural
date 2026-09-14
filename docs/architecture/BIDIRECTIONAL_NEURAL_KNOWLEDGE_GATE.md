@@ -3,11 +3,12 @@
 ## Status
 
 ```text
-STATUS: PHASE_B_QUERY_SERVICE_ESTABLISHED
+STATUS: PHASE_C_PDL_QUERY_ADAPTER_ESTABLISHED
 IMPLEMENTATION STATUS:
   - Phase A (Contracts & Boundaries): IMPLEMENTED (src/gate/models.py, src/gate/enums.py)
   - Phase B (Neural Query Service): IMPLEMENTED (src/gate/service.py, src/gate/retrieval_adapter.py, tests/gate/test_query_service.py)
-  - Phase C-F (Transport, PDL Integration, Writeback, Full Gate): NOT IMPLEMENTED / TARGET ARCHITECTURE
+  - Phase C (PDL Query Adapter): IMPLEMENTED (pubcoreagencia/pub-dev-loop: src/pdl/neural/query-types.ts, src/pdl/neural/query-transport.ts, src/pdl/neural/query-adapter.ts, tests/pdl/neural-query-adapter.test.ts)
+  - Phase D-F (Experience Writeback, Full Gate Integration, Controlled E2E): NOT IMPLEMENTED / TARGET ARCHITECTURE
 CANONICAL TARGET BASELINE: v0.2
 GOVERNANCE CHECKPOINT: 2026-09-14
 ```
@@ -430,7 +431,8 @@ CLASSIFICATION: ROADMAP & STATUS
 - **Phase A — Contracts & Boundaries:** `CONTRACTS & BOUNDARIES IMPLEMENTED` (Canonical typed DTOs, closed enums, structural validation, serialization/deserialization, authority metadata, and 12-scenario test suite in `src/gate/` and `tests/gate/test_gate_contracts.py`).
 - **Phase B — Neural Query Service:** `QUERY SERVICE IMPLEMENTED` (Internal `NeuralQueryService` in `src/gate/service.py`, `HybridSearchAdapter` and `NeuralResultMapper` in `src/gate/retrieval_adapter.py`, `search_detailed()` in `src/retrieval/hybrid_search.py`, and 18-scenario unit test suite in `tests/gate/test_query_service.py`).
   - *AINDA NÃO IMPLEMENTADO:* HTTP, REST, FastAPI, MCP, PDL Query Client, PDL Runtime Integration, Experience Writeback, Bidirectional Gate Runtime, Autonomous Cognitive Loop.
-- **Phase C — PDL Pre-Execution Context:** `NOT IMPLEMENTED / TARGET` Implementar `query()` no client do PDL e integrar ao `ContextAssemblyEngine`.
+- **Phase C — PDL Query Adapter:** `PDL QUERY ADAPTER IMPLEMENTED` (Canonical query contracts in `src/pdl/neural/query-types.ts`, transport abstraction `NeuralQueryTransport` and implementations in `src/pdl/neural/query-transport.ts`, query adapter `DefaultPubNeuralQueryAdapter` in `src/pdl/neural/query-adapter.ts`, context assembly formatting with prompt injection delimiters `<neural_context>`/`<neural_item>`, 8 gate semantic status mapping, DATA-ONLY invariant enforcement, and 20-scenario unit test suite in `tests/pdl/neural-query-adapter.test.ts` in `pubcoreagencia/pub-dev-loop`).
+  - *AINDA NÃO IMPLEMENTADO:* PDL runtime hook integration in worker/scheduler, Experience Writeback (Phase D), live network transport server (HTTP/MCP).
 - **Phase D — Experience Writeback:** `NOT IMPLEMENTED / TARGET` Integrar `recordPostTaskExperience()` ao ciclo pós-Persistence Gate.
 - **Phase E — Validation / Tests:** `NOT IMPLEMENTED / TARGET` Executar a matriz completa de testes de integração com mocks determinísticos.
 - **Phase F — Controlled E2E:** `NOT IMPLEMENTED / TARGET` Validação ponta a ponta com repositório piloto em ambiente controlado.
