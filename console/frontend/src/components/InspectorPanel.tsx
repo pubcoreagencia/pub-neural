@@ -1,21 +1,46 @@
 import { useEffect, useState } from "react";
 import { NeuralAPI } from "../api/client";
 import type { EntityDetailDTO } from "../api/types";
+import { EventInspector } from "../inspector/EventInspector";
 
 interface InspectorPanelProps {
   entityId: string | null;
+  eventId?: string | null;
+  activeTab?: "entity" | "event";
+  onTabChange?: (tab: "entity" | "event") => void;
   onNavigateEntity?: (id: string) => void;
   onSelectEvent?: (eventId: string) => void;
+  onCloseEvent?: () => void;
 }
 
 export function InspectorPanel({
   entityId,
+  eventId,
+  activeTab,
+  onTabChange,
   onNavigateEntity,
   onSelectEvent,
+  onCloseEvent,
 }: InspectorPanelProps) {
   const [entity, setEntity] = useState<EntityDetailDTO | null>(null);
   const [loading, setLoading] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
+  const [internalTab, setInternalTab] = useState<"entity" | "event">("entity");
+
+  const currentTab = activeTab ?? internalTab;
+
+  const setTab = (tab: "entity" | "event") => {
+    if (onTabChange) onTabChange(tab);
+    setInternalTab(tab);
+  };
+
+  useEffect(() => {
+    if (eventId && !entityId) {
+      setTab("event");
+    } else if (entityId && !eventId) {
+      setTab("entity");
+    }
+  }, [entityId, eventId]);
 
   useEffect(() => {
     if (!entityId) {
@@ -48,6 +73,49 @@ export function InspectorPanel({
     setTimeout(() => setCopiedId(false), 2000);
   };
 
+  if (currentTab === "event" && eventId) {
+    return (
+      <div style={panelContainerStyle}>
+        {entityId && (
+          <div style={tabBarStyle}>
+            <button
+              type="button"
+              onClick={() => setTab("entity")}
+              style={{
+                ...tabBtnStyle,
+                color: "#94a3b8",
+                borderBottom: "2px solid transparent",
+              }}
+            >
+              ✦ Entity Inspector
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("event")}
+              style={{
+                ...tabBtnStyle,
+                color: "#a855f7",
+                borderBottom: "2px solid #a855f7",
+                backgroundColor: "#1e293b",
+              }}
+            >
+              ◷ Event Inspector
+            </button>
+          </div>
+        )}
+        <EventInspector
+          eventId={eventId}
+          onSelectEvent={onSelectEvent}
+          onNavigateEntity={(id) => {
+            if (onNavigateEntity) onNavigateEntity(id);
+            setTab("entity");
+          }}
+          onClose={onCloseEvent}
+        />
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div style={panelContainerStyle}>
@@ -59,6 +127,21 @@ export function InspectorPanel({
   }
 
   if (!entity) {
+    if (eventId) {
+      return (
+        <div style={panelContainerStyle}>
+          <EventInspector
+            eventId={eventId}
+            onSelectEvent={onSelectEvent}
+            onNavigateEntity={(id) => {
+              if (onNavigateEntity) onNavigateEntity(id);
+              setTab("entity");
+            }}
+            onClose={onCloseEvent}
+          />
+        </div>
+      );
+    }
     return (
       <div style={panelContainerStyle}>
         <div style={{ color: "#64748b", padding: 32, textAlign: "center", fontSize: "0.85rem" }}>
@@ -70,6 +153,34 @@ export function InspectorPanel({
 
   return (
     <div style={panelContainerStyle}>
+      {eventId && (
+        <div style={tabBarStyle}>
+          <button
+            type="button"
+            onClick={() => setTab("entity")}
+            style={{
+              ...tabBtnStyle,
+              color: "#38bdf8",
+              borderBottom: "2px solid #38bdf8",
+              backgroundColor: "#1e293b",
+            }}
+          >
+            ✦ Entity Inspector
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("event")}
+            style={{
+              ...tabBtnStyle,
+              color: "#94a3b8",
+              borderBottom: "2px solid transparent",
+            }}
+          >
+            ◷ Event Inspector
+          </button>
+        </div>
+      )}
+
       {/* 1. IDENTITY HEADER */}
       <div style={{ padding: "16px", borderBottom: "1px solid #334155", backgroundColor: "#0f172a" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
@@ -280,7 +391,10 @@ export function InspectorPanel({
               <span style={{ color: "#94a3b8" }}>Originating Event:</span>
               <button
                 type="button"
-                onClick={() => onSelectEvent && onSelectEvent(entity.originating_event_id)}
+                onClick={() => {
+                  if (onSelectEvent) onSelectEvent(entity.originating_event_id);
+                  setTab("event");
+                }}
                 style={linkButtonStyle}
                 title="View in Timeline"
               >
@@ -395,3 +509,21 @@ const linkButtonStyle: React.CSSProperties = {
   textDecoration: "underline",
   padding: 0,
 };
+
+const tabBarStyle: React.CSSProperties = {
+  display: "flex",
+  borderBottom: "1px solid #334155",
+  backgroundColor: "#090d16",
+};
+
+const tabBtnStyle: React.CSSProperties = {
+  flex: 1,
+  padding: "8px 12px",
+  fontSize: "0.72rem",
+  fontWeight: 700,
+  border: "none",
+  cursor: "pointer",
+  backgroundColor: "transparent",
+  transition: "all 0.15s ease",
+};
+

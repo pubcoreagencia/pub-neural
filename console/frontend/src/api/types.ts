@@ -106,12 +106,56 @@ export interface SearchResponseDTO {
 }
 
 export interface SystemStatusDTO {
-  status: string;
+  status: "HEALTHY" | "DEGRADED" | "UNAVAILABLE" | "ERROR" | string;
   database_connected: boolean;
   postgresql_version: string | null;
   active_trust_zone: string | null;
   active_actor_role: string | null;
-  projector_checkpoints: any[];
+  projector_checkpoints: Array<{
+    projector_name: string;
+    last_processed_global_sequence: number;
+    status: string;
+    last_checkpoint_at: string;
+    error_detail?: string | null;
+  }>;
   capabilities: Record<string, string>;
   server_time: string;
 }
+
+export interface EventItemDTO {
+  id: string;
+  global_sequence: number;
+  event_type: string;
+  event_version: number;
+  producer_version: string;
+  stream_id: string;
+  stream_version: number;
+  actor_id: string;
+  actor_role: string;
+  recorded_at: string;
+}
+
+export interface EventDetailDTO {
+  id: string;
+  global_sequence: number;
+  event_type: string;
+  event_version: number;
+  payload_schema_version: number;
+  producer_version: string;
+  stream_id: string;
+  stream_version: number;
+  actor_id: string;
+  actor_role: string;
+  payload: Record<string, any>;
+  signature: string | null;
+  recorded_at: string;
+  parent_event_ids: string[];
+}
+
+export interface EventListResponseDTO {
+  events: EventItemDTO[];
+  total_returned: number;
+  limit: number;
+  offset: number;
+}
+

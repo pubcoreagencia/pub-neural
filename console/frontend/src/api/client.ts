@@ -1,4 +1,11 @@
-import type { GraphResponseDTO, EntityDetailDTO, SearchResponseDTO, SystemStatusDTO } from "./types";
+import type {
+  GraphResponseDTO,
+  EntityDetailDTO,
+  SearchResponseDTO,
+  SystemStatusDTO,
+  EventListResponseDTO,
+  EventDetailDTO,
+} from "./types";
 
 const API_BASE = "http://127.0.0.1:8080/api/v1";
 const TOKEN = import.meta.env.VITE_NEURAL_BEARER_TOKEN;
@@ -34,4 +41,24 @@ export const NeuralAPI = {
   async getEntityDetail(entityId: string): Promise<EntityDetailDTO> {
     return fetchApi<EntityDetailDTO>(`/entities/${entityId}`);
   },
+
+  async getEvents(params?: {
+    limit?: number;
+    offset?: number;
+    streamId?: string;
+    eventType?: string;
+  }): Promise<EventListResponseDTO> {
+    const searchParams = new URLSearchParams();
+    if (params?.limit !== undefined) searchParams.set("limit", String(params.limit));
+    if (params?.offset !== undefined) searchParams.set("offset", String(params.offset));
+    if (params?.streamId) searchParams.set("stream_id", params.streamId);
+    if (params?.eventType) searchParams.set("event_type", params.eventType);
+    const qs = searchParams.toString();
+    return fetchApi<EventListResponseDTO>(`/events${qs ? `?${qs}` : ""}`);
+  },
+
+  async getEventDetail(eventId: string): Promise<EventDetailDTO> {
+    return fetchApi<EventDetailDTO>(`/events/${encodeURIComponent(eventId)}`);
+  },
 };
+
