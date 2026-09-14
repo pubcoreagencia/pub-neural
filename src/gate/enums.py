@@ -247,3 +247,31 @@ class AgentRole(str, Enum):
                 return role
         valid = ", ".join(r.value for r in cls)
         raise ValueError(f"Invalid agent role '{value}'. Must be one of: {valid}")
+
+
+class ExperienceWritebackStatus(str, Enum):
+    """
+    Auditable status of a Neural Experience Writeback interaction.
+    Distinguishes successful ingestion from duplicate/idempotent replays,
+    invalid request payloads, and backend availability issues.
+    """
+    ACCEPTED = "ACCEPTED"
+    DUPLICATE = "DUPLICATE"
+    INVALID_REQUEST = "INVALID_REQUEST"
+    UNAVAILABLE = "UNAVAILABLE"
+    INTERNAL_ERROR = "INTERNAL_ERROR"
+
+    @classmethod
+    def from_str(cls, value: Any) -> "ExperienceWritebackStatus":
+        if isinstance(value, cls):
+            return value
+        if hasattr(value, "value") and isinstance(value.value, str):
+            value = value.value
+        if not isinstance(value, str):
+            raise TypeError(f"ExperienceWritebackStatus must be a string, got {type(value).__name__}")
+        normalized = value.strip().upper()
+        try:
+            return cls(normalized)
+        except ValueError:
+            valid = ", ".join(s.value for s in cls)
+            raise ValueError(f"Invalid writeback status '{value}'. Must be one of: {valid}")

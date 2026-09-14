@@ -8,6 +8,7 @@ from .enums import (
     AgentRole,
     AuthorityLevel,
     ConflictState,
+    ExperienceWritebackStatus,
     FreshnessState,
     GateStatus,
     KnowledgeClass,
@@ -28,6 +29,7 @@ from .models import (
     FreshnessMetadata,
     GateFailure,
     NeuralExperienceRecord,
+    ExperienceIngestionResult,
     NeuralKnowledgeItem,
     NeuralQueryRequest,
     NeuralQueryResponse,
@@ -41,12 +43,18 @@ from .retrieval_adapter import (
     RetrievalBatch,
 )
 from .service import NeuralQueryService
+from .experience_service import (
+    ExperienceSink,
+    InMemoryExperienceSink,
+    NeuralExperienceService,
+)
 
 __all__ = [
     # Enums
     "AgentRole",
     "AuthorityLevel",
     "ConflictState",
+    "ExperienceWritebackStatus",
     "FreshnessState",
     "GateStatus",
     "KnowledgeClass",
@@ -62,6 +70,7 @@ __all__ = [
     "CallerIdentity",
     "CandidateFinding",
     "ContradictionItem",
+    "ExperienceIngestionResult",
     "FreshnessMetadata",
     "GateFailure",
     "NeuralExperienceRecord",
@@ -76,4 +85,8 @@ __all__ = [
     "NeuralResultMapper",
     "NeuralRetrievalEngine",
     "RetrievalBatch",
+    # Experience Service Boundary
+    "ExperienceSink",
+    "InMemoryExperienceSink",
+    "NeuralExperienceService",
 ]

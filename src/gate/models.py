@@ -16,6 +16,7 @@ from .enums import (
     AgentRole,
     AuthorityLevel,
     ConflictState,
+    ExperienceWritebackStatus,
     FreshnessState,
     GateStatus,
     KnowledgeClass,
@@ -842,3 +843,68 @@ class GateFailure:
             details=data.get("details"),
             timestamp=data.get("timestamp", datetime.now(timezone.utc).isoformat()),
         )
+
+
+@dataclass
+class ExperienceIngestionResult:
+    """
+    Contract for the outcome of a post-task experience writeback into PUB Neural.
+    Preserves explicit status separation (ACCEPTED, DUPLICATE, INVALID_REQUEST, UNAVAILABLE, INTERNAL_ERROR).
+    """
+    status: ExperienceWritebackStatus
+    task_id: str
+    event_id: Optional[str] = None
+    idempotency_key: Optional[str] = None
+    is_duplicate: bool = False
+    candidate_findings_count: int = 0
+    recorded_at: Optional[str] = None
+    reason: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.status = ExperienceWritebackStatus.from_str(self.status)
+        self.task_id = _validate_non_empty_str(self.task_id, "task_id") if self.task_id else "unknown"
+
+    @property
+    def is_accepted(self) -> bool:
+        return self.status == ExperienceWritebackStatus.ACCEPTED
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "status": self.status.value,
+            "taskId": self.task_id,
+            "eventId": self.event_id,
+            "idempotencyKey": self.idempotency_key,
+            "isDuplicate": self.is_duplicate,
+            "candidateFindingsCount": self.candidate_findings_count,
+            "recordedAt": self.recorded_at,
+            "reason": self.reason,
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ExperienceIngestionResult":
+        if not isinstance(data, dict):
+            raise GateValidationError("ExperienceIngestionResult data must be a dictionary")
+        return cls(
+            status=ExperienceWritebackStatus.from_str(data.get("status", ExperienceWritebackStatus.INTERNAL_ERROR.value)),
+            task_id=data.get("taskId", data.get("task_id", "unknown")),
+            event_id=data.get("eventId", data.get("event_id")),
+            idempotency_key=data.get("idempotencyKey", data.get("idempotency_key")),
+            is_duplicate=bool(data.get("isDuplicate", data.get("is_duplicate", False))),
+            candidate_findings_count=int(data.get("candidateFindingsCount", data.get("candidate_findings_count", 0))),
+            recorded_at=data.get("recordedAt", data.get("recorded_at")),
+            reason=data.get("reason"),
+            metadata=data.get("metadata", {}),
+        )
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "ExperienceIngestionResult":
+        try:
+            data = json.loads(json_str)
+        except Exception as e:
+            raise GateValidationError(f"Invalid JSON string for ExperienceIngestionResult: {e}")
+        return cls.from_dict(data)

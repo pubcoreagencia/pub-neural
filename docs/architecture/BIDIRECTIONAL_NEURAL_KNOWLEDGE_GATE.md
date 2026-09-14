@@ -3,12 +3,13 @@
 ## Status
 
 ```text
-STATUS: PHASE_C_PDL_QUERY_ADAPTER_ESTABLISHED
+STATUS: PHASE_D_EXPERIENCE_WRITEBACK_ESTABLISHED
 IMPLEMENTATION STATUS:
   - Phase A (Contracts & Boundaries): IMPLEMENTED (src/gate/models.py, src/gate/enums.py)
   - Phase B (Neural Query Service): IMPLEMENTED (src/gate/service.py, src/gate/retrieval_adapter.py, tests/gate/test_query_service.py)
   - Phase C (PDL Query Adapter): IMPLEMENTED (pubcoreagencia/pub-dev-loop: src/pdl/neural/query-types.ts, src/pdl/neural/query-transport.ts, src/pdl/neural/query-adapter.ts, tests/pdl/neural-query-adapter.test.ts)
-  - Phase D-F (Experience Writeback, Full Gate Integration, Controlled E2E): NOT IMPLEMENTED / TARGET ARCHITECTURE
+  - Phase D (Experience Writeback): IMPLEMENTED (src/gate/experience_service.py, tests/gate/test_experience_service.py, and pubcoreagencia/pub-dev-loop: src/pdl/neural/experience-types.ts, src/pdl/neural/experience-transport.ts, src/pdl/neural/experience-adapter.ts, tests/pdl/neural-experience-adapter.test.ts)
+  - Phase E-F (Validation / Controlled E2E Gate Integration): NOT IMPLEMENTED / TARGET ARCHITECTURE
 CANONICAL TARGET BASELINE: v0.2
 GOVERNANCE CHECKPOINT: 2026-09-14
 ```
@@ -433,7 +434,8 @@ CLASSIFICATION: ROADMAP & STATUS
   - *AINDA NÃO IMPLEMENTADO:* HTTP, REST, FastAPI, MCP, PDL Query Client, PDL Runtime Integration, Experience Writeback, Bidirectional Gate Runtime, Autonomous Cognitive Loop.
 - **Phase C — PDL Query Adapter:** `PDL QUERY ADAPTER IMPLEMENTED` (Canonical query contracts in `src/pdl/neural/query-types.ts`, transport boundary abstraction `NeuralQueryTransport` and offline-safe scaffold in `src/pdl/neural/query-transport.ts`, query adapter `DefaultPubNeuralQueryAdapter` in `src/pdl/neural/query-adapter.ts`, 8 gate semantic status mapping, DATA-ONLY invariant enforcement, and 20-scenario unit test suite in `tests/pdl/neural-query-adapter.test.ts` in `pubcoreagencia/pub-dev-loop`).
   - *AINDA NÃO IMPLEMENTADO:* Neural HTTP server, REST API, MCP, real end-to-end network transport, automatic PDL runtime query (ContextAssemblyEngine / worker / scheduler hooks), LLM prompt context formatter, Experience Writeback (Phase D), Bidirectional Gate runtime, autonomous cognitive loop.
-- **Phase D — Experience Writeback:** `NOT IMPLEMENTED / TARGET` Integrar `recordPostTaskExperience()` ao ciclo pós-Persistence Gate.
+- **Phase D — Experience Writeback:** `EXPERIENCE WRITEBACK IMPLEMENTED` (Experience ingestion contract, internal `NeuralExperienceService` in `src/gate/experience_service.py`, event sourcing and idempotency preservation via `ExperienceSink` / `InMemoryExperienceSink`, 18-scenario unit test suite in `tests/gate/test_experience_service.py`, and in `pubcoreagencia/pub-dev-loop`: canonical contracts in `src/pdl/neural/experience-types.ts`, transport boundary abstraction in `src/pdl/neural/experience-transport.ts`, adapter in `src/pdl/neural/experience-adapter.ts`, and 12-scenario unit test suite in `tests/pdl/neural-experience-adapter.test.ts`).
+  - *AINDA NÃO IMPLEMENTADO:* Automatic worker writeback (post-task hook in worker/scheduler), real network E2E transport server, autonomous extraction, automatic promotion (Candidate -> Validated), bidirectional runtime gate, autonomous cognitive loop. Neural possui uma fronteira de ingestão de experiência implementada sem aprendizado automático autônomo.
 - **Phase E — Validation / Tests:** `NOT IMPLEMENTED / TARGET` Executar a matriz completa de testes de integração com mocks determinísticos.
 - **Phase F — Controlled E2E:** `NOT IMPLEMENTED / TARGET` Validação ponta a ponta com repositório piloto em ambiente controlado.
 
