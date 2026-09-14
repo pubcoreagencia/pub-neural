@@ -1,0 +1,258 @@
+"""
+Data Transfer Objects (DTOs) for PUB Neural Console V0 Read-Only API.
+Enforces typed presentation boundaries and prevents database row / secret leakage.
+"""
+
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+import uuid
+
+
+def serialize_val(val: Any) -> Any:
+    """Helper to serialize datetime, UUID, or dataclass objects."""
+    if isinstance(val, (datetime,)):
+        return val.isoformat()
+    if isinstance(val, (uuid.UUID,)):
+        return str(val)
+    if hasattr(val, "to_dict"):
+        return val.to_dict()
+    if isinstance(val, list):
+        return [serialize_val(item) for item in val]
+    if isinstance(val, dict):
+        return {k: serialize_val(v) for k, v in val.items()}
+    return val
+
+
+@dataclass(frozen=True)
+class GraphNodeDTO:
+    id: str
+    entity_type: str
+    title: str
+    slug: str
+    summary: Optional[str]
+    promotion_state: str
+    conflict_state: str
+    confidence_score: float
+    valid_from: str
+    valid_until: Optional[str]
+    trust_zone: str
+    project_id: Optional[str]
+    evidence_count: int
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class GraphEdgeDTO:
+    id: str
+    source_id: str
+    target_id: str
+    relation_type: str
+    weight: float
+    is_bidirectional: bool
+    trust_zone: str
+    is_active: bool
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class GraphResponseDTO:
+    nodes: List[GraphNodeDTO]
+    edges: List[GraphEdgeDTO]
+    center_node_id: Optional[str]
+    hop_depth: int
+    total_nodes: int
+    total_edges: int
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "nodes": [n.to_dict() for n in self.nodes],
+            "edges": [e.to_dict() for e in self.edges],
+            "center_node_id": self.center_node_id,
+            "hop_depth": self.hop_depth,
+            "total_nodes": self.total_nodes,
+            "total_edges": self.total_edges,
+        }
+
+
+@dataclass(frozen=True)
+class EvidenceLocatorDTO:
+    id: str
+    source_id: str
+    repository: Optional[str]
+    commit_sha: Optional[str]
+    file_path: Optional[str]
+    start_line: int
+    end_line: int
+    exact_quote: str
+    confidence: float
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class EntityDetailDTO:
+    id: str
+    entity_type: str
+    title: str
+    slug: str
+    summary: Optional[str]
+    content: Optional[str]
+    promotion_state: str
+    promotion_reason: Optional[str]
+    conflict_state: str
+    confidence_score: float
+    superseded_by: Optional[str]
+    valid_from: str
+    valid_until: Optional[str]
+    recorded_from: str
+    recorded_until: Optional[str]
+    is_active: bool
+    originating_event_id: str
+    last_transition_event_id: Optional[str]
+    project_id: Optional[str]
+    trust_zone: str
+    created_at: str
+    updated_at: str
+    evidence: List[EvidenceLocatorDTO]
+    incoming_relations_count: int
+    outgoing_relations_count: int
+
+    def to_dict(self) -> Dict[str, Any]:
+        d = asdict(self)
+        d["evidence"] = [e.to_dict() for e in self.evidence]
+        return d
+
+
+@dataclass(frozen=True)
+class SearchResultItemDTO:
+    target_id: str
+    target_type: str
+    title: str
+    snippet: str
+    lexical_rank: Optional[int]
+    dense_rank: Optional[int]
+    rrf_score: float
+    trust_zone: str
+    project_id: Optional[str]
+    originating_event_id: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class AbstentionDecisionDTO:
+    accepted: bool
+    reason: Optional[str]
+    top_dense_similarity: Optional[float]
+    top_rrf_score: Optional[float]
+    lexical_candidate_count: int
+    dense_candidate_count: int
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class SearchResponseDTO:
+    query: str
+    status: str  # "SUCCESS", "ABSTAINED", "NO_MATCH"
+    results: List[SearchResultItemDTO]
+    abstention_decision: AbstentionDecisionDTO
+    lexical_count: int
+    dense_count: int
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "query": self.query,
+            "status": self.status,
+            "results": [r.to_dict() for r in self.results],
+            "abstention_decision": self.abstention_decision.to_dict(),
+            "lexical_count": self.lexical_count,
+            "dense_count": self.dense_count,
+        }
+
+
+@dataclass(frozen=True)
+class EventItemDTO:
+    id: str
+    global_sequence: int
+    event_type: str
+    event_version: int
+    producer_version: str
+    stream_id: str
+    stream_version: int
+    actor_id: str
+    actor_role: str
+    recorded_at: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class EventDetailDTO:
+    id: str
+    global_sequence: int
+    event_type: str
+    event_version: int
+    payload_schema_version: int
+    producer_version: str
+    stream_id: str
+    stream_version: int
+    actor_id: str
+    actor_role: str
+    payload: Dict[str, Any]
+    signature: Optional[str]
+    recorded_at: str
+    parent_event_ids: List[str]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class EventListResponseDTO:
+    events: List[EventItemDTO]
+    total_returned: int
+    limit: int
+    offset: int
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "events": [e.to_dict() for e in self.events],
+            "total_returned": self.total_returned,
+            "limit": self.limit,
+            "offset": self.offset,
+        }
+
+
+@dataclass(frozen=True)
+class SystemStatusDTO:
+    status: str
+    database_connected: bool
+    postgresql_version: Optional[str]
+    active_trust_zone: Optional[str]
+    active_actor_role: Optional[str]
+    projector_checkpoints: List[Dict[str, Any]]
+    capabilities: Dict[str, str]
+    server_time: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ErrorResponseDTO:
+    error: str
+    detail: Optional[str] = None
+    status_code: int = 400
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
