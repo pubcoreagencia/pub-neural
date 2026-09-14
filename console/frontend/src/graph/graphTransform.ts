@@ -1,33 +1,48 @@
 import type { Node, Edge } from "@xyflow/react";
 import type { GraphNodeDTO, GraphEdgeDTO, GraphResponseDTO } from "../api/types";
+import type { EntityNodeData } from "./nodes/EntityNode";
+import type { RelationEdgeData } from "./edges/RelationEdge";
 
 export function transformNodes(
   dtoNodes: GraphNodeDTO[],
   centerNodeId: string | null
 ): Node[] {
-  return dtoNodes.map((node) => ({
-    id: node.id,
-    type: "default",
-    data: {
-      label: node.title,
-      type: node.entity_type,
-      isCenter: node.id === centerNodeId,
+  return dtoNodes.map((node) => {
+    const data: EntityNodeData = {
       ...node,
-    },
-    position: { x: 0, y: 0 }, // Position will be calculated by Dagre
-  }));
+      label: node.title,
+      isCenter: node.id === centerNodeId,
+      isSelected: node.id === centerNodeId,
+      isHighlighted: false,
+      isDimmed: false,
+    };
+
+    return {
+      id: node.id,
+      type: "entityNode",
+      data: data as unknown as Record<string, unknown>,
+      position: { x: 0, y: 0 },
+    };
+  });
 }
 
 export function transformEdges(dtoEdges: GraphEdgeDTO[]): Edge[] {
-  return dtoEdges.map((edge) => ({
-    id: edge.id,
-    source: edge.source_id,
-    target: edge.target_id,
-    label: edge.relation_type,
-    type: "default",
-    animated: edge.is_active,
-    data: edge as unknown as Record<string, unknown>,
-  }));
+  return dtoEdges.map((edge) => {
+    const data: RelationEdgeData = {
+      ...edge,
+      isHighlighted: false,
+      isDimmed: false,
+    };
+
+    return {
+      id: edge.id,
+      source: edge.source_id,
+      target: edge.target_id,
+      type: "relationEdge",
+      animated: edge.is_active,
+      data: data as unknown as Record<string, unknown>,
+    };
+  });
 }
 
 export function buildGraph(dto: GraphResponseDTO) {

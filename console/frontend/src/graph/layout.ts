@@ -9,10 +9,14 @@ export function getLayoutedElements(
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-  const nodeWidth = 172;
-  const nodeHeight = 36;
+  const nodeWidth = 240;
+  const nodeHeight = 110;
 
-  dagreGraph.setGraph({ rankdir: direction });
+  dagreGraph.setGraph({
+    rankdir: direction,
+    nodesep: 50,
+    ranksep: 70,
+  });
 
   nodes.forEach((node) => {
     dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
@@ -24,14 +28,16 @@ export function getLayoutedElements(
 
   dagre.layout(dagreGraph);
 
-  nodes.forEach((node) => {
+  const layoutedNodes = nodes.map((node) => {
     const nodeWithPosition = dagreGraph.node(node.id);
-    // Adjust position to be centered based on xyflow requirements
-    node.position = {
-      x: nodeWithPosition.x - nodeWidth / 2,
-      y: nodeWithPosition.y - nodeHeight / 2,
+    return {
+      ...node,
+      position: {
+        x: nodeWithPosition ? nodeWithPosition.x - nodeWidth / 2 : 0,
+        y: nodeWithPosition ? nodeWithPosition.y - nodeHeight / 2 : 0,
+      },
     };
   });
 
-  return { nodes, edges };
+  return { nodes: layoutedNodes, edges };
 }

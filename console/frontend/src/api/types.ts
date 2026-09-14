@@ -34,6 +34,18 @@ export interface GraphResponseDTO {
   total_edges: number;
 }
 
+export interface EvidenceLocatorDTO {
+  id: string;
+  source_id: string;
+  repository: string | null;
+  commit_sha: string | null;
+  file_path: string | null;
+  start_line: number;
+  end_line: number;
+  exact_quote: string;
+  confidence: number;
+}
+
 export interface EntityDetailDTO {
   id: string;
   entity_type: string;
@@ -57,7 +69,7 @@ export interface EntityDetailDTO {
   trust_zone: string;
   created_at: string;
   updated_at: string;
-  evidence: any[];
+  evidence: EvidenceLocatorDTO[];
   incoming_relations_count: number;
   outgoing_relations_count: number;
 }
@@ -75,11 +87,20 @@ export interface SearchResultItemDTO {
   originating_event_id: string;
 }
 
+export interface AbstentionDecisionDTO {
+  accepted: boolean;
+  reason: string | null;
+  top_dense_similarity: number | null;
+  top_rrf_score: number | null;
+  lexical_candidate_count: number;
+  dense_candidate_count: number;
+}
+
 export interface SearchResponseDTO {
   query: string;
-  status: string;
+  status: "SUCCESS" | "ABSTAINED" | "NO_MATCH";
   results: SearchResultItemDTO[];
-  abstention_decision: any;
+  abstention_decision: AbstentionDecisionDTO;
   lexical_count: number;
   dense_count: number;
 }
