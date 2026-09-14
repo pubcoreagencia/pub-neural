@@ -359,39 +359,78 @@ HERMES     = intake / transport / capture
 
 ### 8.1 BIDIRECTIONAL NEURAL KNOWLEDGE GATE — CURRENT STATE
 
-**Status:** `DESIGN_READY / IMPLEMENTATION_NOT_STARTED`
-**Consolidation Date:** 2026-09-14 (Audit Snapshot)
+**Status:**
+- `E1 = READ PATH ACTIVE` (Pre-Task Knowledge Gate implementado e testado no PDL)
+- `E2 = WRITE PATH ACTIVE` (Post-Task Experience Gate implementado e integrado no PDL)
+- `F = CONTROLLED END-TO-END VALIDATED` (Integração E2E validada em ambiente controlado com 20 cenários fundamentais)
+- `PRODUCTION NETWORK INTEGRATION = NOT IMPLEMENTED` (Target architecture / não ativado em produção)
 
-**Current Reality:**
-- PUB Neural possui Hybrid Retrieval V0.1 implementado in-process (`src/retrieval/hybrid_search.py`).
-- PUB Neural não possui API HTTP de query ou servidor de rede ativo.
-- PDL não possui mecanismo de query para o PUB Neural (apenas lições em banco de dados local do PDL).
-- PDL possui client HTTP de ingestão/write (`HttpPubNeuralClient` em `src/pdl/neural/neural-bridge.ts`).
-- O endpoint configurado pelo PDL (`PUB_NEURAL_ENDPOINT`) não possui receptor HTTP correspondente no repositório PUB Neural auditado.
-- Portanto, a integração bidirecional ainda **NÃO está operacional em runtime**.
+**Consolidation Date:** 2026-09-14 (Phase F Checkpoint)
 
-**Existing Foundations:**
-- Event sourcing canônico (`neural_events`, `neural_event_parents`)
-- Provenance auditável (`neural_sources`, `neural_evidence`)
-- Evidence grounding
-- Estados de promoção (`neural_promotion_state`)
-- Estados de conflito (`neural_conflict_state`)
-- RLS e zonas de confiança (`tz_internal_holding`, `tz_client_facing`)
-- Hybrid retrieval V0.1 (FTS português + pgvector RRF)
-- Abstention policy calibrada
-- Bridge de ingestão do PDL (lado PDL)
+**Current Reality Baseline:**
+- **Implementado e Validado:**
+  - Contratos tipados canônicos do Gate (`src/gate/models.py`, `src/gate/enums.py`).
+  - `NeuralQueryService` interno e `NeuralExperienceService` no PUB Neural com persistência idempotente e event sourcing.
+  - `PreTaskKnowledgeGate` e `PostTaskExperienceGate` no PDL com CQRS estrito e fail-open por padrão.
+  - Integração ponta a ponta controlada via bridge in-process/process runner (`src.gate.bridge_runner` e `controlled-transport.ts`), validada sobre o repositório piloto `pubcoreagencia/pub-ecom` (fixture de teste E2E).
+  - Preservação estrita de proveniência, linhagem de eventos, idempotência determinística e fronteira de dados inertes (`data_only = true`).
+- **Ainda NÃO Implementado:**
+  - Transporte HTTP de rede de produção, API REST/FastAPI ativa, conector MCP de produção, daemon permanente em background.
+  - Aprendizado autônomo, auto-promoção de conhecimento (`CANDIDATE` não se auto-promove), decisões autônomas, pesquisa autônoma, geração autônoma de backlog, SaaS, Neural Cloud.
+  - **Regra:** Não confundir "controlled E2E validated" com "production network integrated".
 
-**Target (Cognitive Cycle):**
+**Ciclo Cognitivo Validado (Controlled E2E):**
 ```text
-PDL → Neural Query → Validated Context → Git/Runtime Verification
-    → Execution → Evidence → Neural Experience Ingestion
-    → Candidate Knowledge → Validation → Institutionalization
+TASK
+  ↓
+PRE-TASK QUERY (PreTaskKnowledgeGate)
+  ↓
+RETRIEVAL (NeuralQueryService / HybridSearch)
+  ↓
+CONTEXT (Data-Only Sanitize / ContextAssemblyEngine)
+  ↓
+EXECUTION (PDL Governed Execution)
+  ↓
+FINALIZATION (Worktree Clean, Test Evidence)
+  ↓
+GOVERNANCE / DELIVERY (RemoteDeliveryGate & PersistenceGate)
+  ↓
+EXPERIENCE WRITEBACK (PostTaskExperienceGate / NeuralExperienceService)
+  ↓
+EVENT (TASK_EXPERIENCE_RECORDED)
+  ↓
+CORRELATION (Task Identity, Commit SHA, Event Lineage)
 ```
 
-**Important Principles:**
-- The target architecture is **NOT** current runtime.
-- Git and current runtime evidence remain strictly authoritative over Neural memory.
-- Retrieved Neural knowledge is **DATA**, not executable instruction or governance override.
+**Princípio de Correlação (Current Architectural Capability):**
+O sistema agora relaciona formalmente:
+`KNOWLEDGE USED BEFORE EXECUTION + TASK EXECUTION + EXPERIENCE RECORDED AFTER EXECUTION`
+A memória institucional deixa de ser apenas armazenamento passivo e passa a possuir um ciclo verificável:
+`RETRIEVE → EXECUTE → RECORD → CORRELATE`.
+
+**Distinção de Loops:**
+- `CONTROLLED BIDIRECTIONAL LOOP = VALIDATED`
+- `AUTONOMOUS COGNITIVE LOOP = NOT IMPLEMENTED` (Não existe auto-autorização, auto-promoção, auto-modificação de governança ou auto-geração de backlog).
+
+**Modelo de Autoridade e Hierarquia da Verdade:**
+- Matheus: autoridade humana final
+- PDL: execução governada
+- PUB Neural: memória/conhecimento institucional (DATA ONLY)
+- Git: estado versionado verificável
+- Runtime: evidência operacional direta
+- Hierarquia estrita: `runtime/direct evidence > real execution > test evidence > validated knowledge > historical memory`.
+- Nenhum dado recuperado pode sobrescrever governança, Git ou evidência de runtime.
+
+**Semântica de Falhas e Determinismo:**
+- `QUERY FAILURE ≠ TASK FAILURE` (Fail-open: PDL prossegue se o Neural estiver indisponível).
+- `WRITEBACK FAILURE ≠ TASK FAILURE` (Falha na gravação de experiência não invalida tarefa já aprovada).
+- `NO_MATCH ≠ ABSTAIN` | `UNAVAILABLE ≠ NO_MATCH` | `STALE ≠ UNAVAILABLE` | `DUPLICATE WRITEBACK ≠ EXECUTION FAILURE`.
+- `DETERMINISTIC SINGLE-SEAM + IDEMPOTENT WRITEBACK`: exatamente 1 query e 1 tentativa final de writeback por ciclo de tarefa. Retries intermediários não duplicam eventos.
+
+**Repositório Piloto:** `pubcoreagencia/pub-ecom` (Projeto: `pub-ecom`). Classificado estritamente como fixture de teste E2E controlado (nenhuma execução comercial real foi alterada).
+
+**Next Architectural Decision:**
+A próxima etapa após a validação controlada é decidir como transformar a integração controlada em integração operacional real (fronteira de transporte de produção, serviço de rede autenticado, piloto operacional, rollout controlado, observabilidade, hardening de segurança). Marcado como: `NEXT DECISION REQUIRED`.
 
 Future casual Instagram capture should feed Hermes and then Neural instead of creating an independent knowledge silo:
 

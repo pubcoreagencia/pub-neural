@@ -501,3 +501,110 @@ A implementação do **Bidirectional Neural Knowledge Gate** será considerada c
 3. Todos os 17 testes da matriz forem executados com sucesso (100% PASS).
 4. O isolamento de proveniência, escopo de projeto e autoridade do runtime estiver comprovado empiricamente.
 5. Zero tokens ou segredos vazarem para os prompts ou traces públicos.
+
+---
+
+## Phase F — Controlled E2E Gate Integration (Validated)
+
+```text
+STATUS: VALIDATED (PHASE F CLOSED)
+CLASSIFICATION: CONTROLLED BEHAVIORAL E2E INTEGRATION
+```
+
+A **Phase F — Controlled End-to-End Gate Integration** comprovou empiricamente o primeiro ciclo cognitivo bidirecional completo entre o PDL e o PUB Neural em ambiente controlado, validando todos os 20 cenários fundamentais com 100% de aprovação:
+
+### 1. Pilot Repository & Fixture
+- **Repositório Piloto:** `pubcoreagencia/pub-ecom`
+- **Project ID:** `pub-ecom`
+- **Classificação:** `CONTROLLED E2E TEST FIXTURE`
+- **Fato Institucional:** A validação utilizou fixtures e dados determinísticos de teste. Nenhuma execução comercial ou operacional em produção do `pub-ecom` foi alterada por esta validação.
+
+### 2. Topologia de Integração Controlada
+- **Mecanismo:** Process Runner / In-Process CLI Bridge (`src/gate/bridge_runner.py` no Neural e `tests/e2e/neural-gate/controlled-transport.ts` no PDL).
+- **Isolamento de Rede:** Zero portas TCP abertas, zero daemons HTTP em background, zero servidores MCP. A comunicação entre o runtime TypeScript do PDL e o runtime Python do Neural ocorreu estritamente via pipes padronizados de entrada e saída (stdin/stdout JSON).
+
+### 3. Ciclo Cognitivo Comprovado
+```text
+TASK (TASK-ECOM-401)
+  ↓
+PRE-TASK QUERY (PreTaskKnowledgeGate)
+  ↓
+RETRIEVAL (NeuralQueryService / HybridSearchAdapter)
+  ↓
+CONTEXT (Data-Only Sanitize / Prompt Assembly)
+  ↓
+EXECUTION (PDL Governed Execution)
+  ↓
+FINALIZATION (Worktree Clean, Test Evidence)
+  ↓
+GOVERNANCE / DELIVERY (RemoteDeliveryGate & PersistenceGate)
+  ↓
+EXPERIENCE WRITEBACK (PostTaskExperienceGate / NeuralExperienceService)
+  ↓
+EVENT (TASK_EXPERIENCE_RECORDED)
+  ↓
+CORRELATION (Task Identity, Commit SHA, Event Lineage)
+```
+
+### 4. Princípio de Correlação (Current Architectural Capability)
+O sistema agora é capaz de relacionar factualmente:
+`KNOWLEDGE USED BEFORE EXECUTION + TASK EXECUTION + EXPERIENCE RECORDED AFTER EXECUTION`
+A memória institucional deixa de ser apenas armazenamento estático e passa a ter um ciclo verificável de:
+`RETRIEVE → EXECUTE → RECORD → CORRELATE`.
+
+### 5. Event Sourcing & Linhagem de Eventos
+- O registro de experiência gera o evento canônico `TASK_EXPERIENCE_RECORDED` persistido no stream `stream:task:TASK-ECOM-401`.
+- Linhagem rastreável contendo: `event_id` determinístico (UUIDv5), `global_sequence`, `stream_version`, `producer_version`, timestamp auditável, payload de evidências e estado das findings candidatas.
+
+### 6. Idempotência Determinística
+- Padrão: `DETERMINISTIC SINGLE-SEAM + IDEMPOTENT WRITEBACK`.
+- Chave canônica: `exp:<repository>:<taskId>:<commitSha>:<source>`.
+- Primeira submissão: status `ACCEPTED` (`isDuplicate = false`).
+- Submissões repetidas: status `DUPLICATE` (`isDuplicate = true`), preservando o `eventId` original sem gerar eventos espúrios no event store.
+- Execuções com retry e loops de correção intermediários no PDL não disparam writebacks prematuros; apenas o resultado terminal verificado é submetido.
+
+### 7. Semântica de Falhas e Resiliência (Fail-Open)
+- `QUERY FAILURE ≠ TASK FAILURE`: falhas na consulta ao Neural não abortam a execução governada do PDL.
+- `WRITEBACK FAILURE ≠ TASK FAILURE`: falhas no writeback não revogam nem invalidam tarefas já concluídas e verificadas pelo Git/governança.
+- `NO_MATCH ≠ ABSTAIN` | `UNAVAILABLE ≠ NO_MATCH` | `STALE ≠ UNAVAILABLE` | `DUPLICATE WRITEBACK ≠ EXECUTION FAILURE`.
+
+### 8. Salvaguardas e Invariantes de Segurança
+- **Data-Only Boundary:** Dados do Neural são estritamente dados passivos (`data_only = true`), encapsulados sob cabeçalho delimitado. Tentativas de prompt injection (e.g., `"ignore previous instructions"`) são sanitizadas para `[CLAIM_NEUTRALIZED_AS_DATA]`.
+- **Hierarquia da Verdade:** `Runtime/Direct Evidence > Real Execution > Test Evidence > Validated Knowledge > Historical Memory`.
+- **Soberania da Governança:** O Neural possui autoridade executiva nula. Não autoriza merges, não bypassa testes e não sobrescreve decisões do `PersistenceGate` ou do CEO (Matheus).
+- **Preservação de Candidatos:** Lições e findings de experiência são gravadas estritamente com status `CANDIDATE`. Não existe auto-promoção para `VALIDATED` sem ratificação explícita.
+
+### 9. Reality Baseline: Validado vs Não Implementado
+- **IMPLEMENTADO E VALIDADO:** Contratos, Query Service, Query Adapter, Experience Service, Experience Adapter, Pre-Task Gate, Post-Task Gate, Controlled E2E, Proveniência, Event Sourcing, Idempotência, Fail-Open, Data-Only.
+- **AINDA NÃO IMPLEMENTADO:** Transporte HTTP de rede de produção, REST API, servidor MCP, daemon permanente de rede, aprendizado autônomo, auto-promoção, auto-decisões, auto-pesquisa, auto-backlog, SaaS, Neural Cloud.
+- **Distinção Fundamental:**
+  - `CONTROLLED BIDIRECTIONAL LOOP = VALIDATED`
+  - `PRODUCTION NETWORK INTEGRATION = NOT IMPLEMENTED`
+  - `AUTONOMOUS COGNITIVE LOOP = NOT IMPLEMENTED`
+
+---
+
+## Next Architectural Decision
+
+```text
+STATUS: NEXT DECISION REQUIRED
+CLASSIFICATION: ARCHITECTURAL TRANSITION GATE
+```
+
+Com a conclusão e fechamento da Phase F, a pergunta fundamental do projeto **deixa de ser** *"é possível integrar o PDL e o PUB Neural de forma bidirecional com segurança?"* (resposta: **sim, comprovado empiricamente nos 20 cenários**).
+
+A próxima questão arquitetural é decidir **como transformar a integração controlada em integração operacional real em produção**.
+
+Possíveis domínios a serem avaliados e deliberados pelo CEO / Governança:
+1. **Production Transport Boundary:** Escolha do transporte seguro de produção (serviço HTTP autenticado, mTLS, IPC seguro ou conector dedicado).
+2. **Authenticated Network Service:** Estruturação da camada de autenticação, autorização e isolamento multi-tenant (Bearer tokens, rotação de chaves).
+3. **Operational Pilot:** Seleção de escopo para piloto operacional contínuo no ambiente de staging/produção com tarefas reais.
+4. **Controlled Rollout:** Estratégia de ativação gradual (canary, feature flag, taxa de amostragem).
+5. **Observability & Telemetry:** Painel de monitoramento em tempo real (latência de busca, taxa de abstention, volume de writeback, telemetria de erros).
+6. **Failure Policy Tuning:** Calibração de timeouts de rede, limites de retentativa e políticas de circuit breaker.
+7. **Security Hardening:** Auditoria de superfícies de ataque, isolamento estrito de segredos e sandbox de execução.
+
+> [!IMPORTANT]
+> **DIRETRIZ DE TRANSIÇÃO:**
+> Nenhuma das opções acima deve ser escolhida ou implementada automaticamente nesta etapa.
+> O estado atual do sistema permanece formalmente registrado como: **`NEXT DECISION REQUIRED`**.
