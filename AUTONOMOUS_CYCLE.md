@@ -59,7 +59,25 @@ CLASSIFICATION: FACTUAL RUNTIME & CONTROLLED INTEGRATION
   - `CONTROLLED BIDIRECTIONAL LOOP = VALIDATED`
   - `RUNTIME NETWORK API (HTTP V0.1) = IMPLEMENTED & PASSING` (POST /api/v1/runtime/query & POST /api/v1/runtime/experience)
   - `TASK EXPERIENCE PROJECTOR = IMPLEMENTED` (TASK_EXPERIENCE_RECORDED -> neural_nodes [OBSERVED/CANDIDATE], neural_edges [DERIVED_FROM], neural_fts)
+  - `LEVEL 3 CROSS-PROCESS RUNTIME = PROVEN (LOCAL OS PROCESS)` (Standalone entrypoint `runtime/backend/entrypoint.py` serving HTTP at `127.0.0.1:8081` with live PostgreSQL persistence, immediate FTS indexing, and PDL adapter integration)
   - `AUTONOMOUS COGNITIVE CYCLE = NOT IMPLEMENTED` (Machine learning self-promotion remains strictly forbidden without human/CEO governance approval)
+
+### 1.3 Level 3 Cross-Process Operational Runtime (V0.1 Local Proof)
+- **Status:** `LEVEL 3 — CROSS-PROCESS RUNTIME INTEGRATION PROVEN`
+- **Componentes Operacionais:**
+  - **Standalone Process:** `runtime/backend/entrypoint.py` executando como processo de SO autônomo.
+  - **Canonical Routes & Aliases:**
+    - `POST /api/v1/runtime/query` & `POST /v1/query` (idêntica validação, autenticação Bearer e semântica de resposta)
+    - `POST /api/v1/runtime/experience` & `POST /v1/experience` (idêntica validação, autenticação Bearer e semântica de resposta)
+    - `GET /health` (status 200 `UP`)
+  - **Persistência PostgreSQL:** `PostgresExperienceSink` gravando em `pub_neural.neural_events`, gerenciando `pub_neural.neural_idempotency_records` e executando `pub_neural.reduce_event()`.
+  - **Indexação Imediata:** Projeção imediata de nós primários (`OBSERVED`), findings (`CANDIDATE`), arestas (`DERIVED_FROM`) e FTS em português (`neural_fts`).
+  - **Integração PDL:** Adapters `DefaultPubNeuralQueryAdapter` e `DefaultPubNeuralExperienceAdapter` validados com `PreTaskKnowledgeGate` e `PostTaskExperienceGate` em HTTP real.
+  - **Resiliência e Fail-Open:** Indisponibilidade do processo Neural retorna `UNAVAILABLE` sem bloquear ou desarmar tarefas governadas no PDL.
+- **Explicit Non-Claims (O que NÃO faz parte do Level 3):**
+  - Auto-indexação vetorial contínua / embeddings automáticos (`VectorIndexingWorker` permanece assíncrono/manual).
+  - Prova de recuperação híbrida densa populada em runtime de produção.
+  - Infraestrutura de deployment de produção (Docker compose de produção, SSL/TLS de borda, Kubernetes).
 
 ---
 

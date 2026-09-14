@@ -1,4 +1,4 @@
-﻿"""
+"""
 HTTP REST Server for PUB Neural Operational Runtime API V0.1.
 Implements the operational gate boundary on top of Python standard library http.server.
 
@@ -139,7 +139,12 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        if path in ("/api/v1/runtime/query", "/api/v1/runtime/experience"):
+        if path in (
+            "/api/v1/runtime/query",
+            "/api/v1/runtime/experience",
+            "/v1/query",
+            "/v1/experience",
+        ):
             self._send_json(
                 405,
                 {
@@ -165,7 +170,12 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
             path = "/"
 
         # 1. Route validation
-        if path not in ("/api/v1/runtime/query", "/api/v1/runtime/experience"):
+        if path not in (
+            "/api/v1/runtime/query",
+            "/api/v1/runtime/experience",
+            "/v1/query",
+            "/v1/experience",
+        ):
             self._send_json(
                 404,
                 {
@@ -193,9 +203,9 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
             return
 
         # 4. Route Execution
-        if path == "/api/v1/runtime/query":
+        if path in ("/api/v1/runtime/query", "/v1/query"):
             self._handle_query(body)
-        elif path == "/api/v1/runtime/experience":
+        elif path in ("/api/v1/runtime/experience", "/v1/experience"):
             self._handle_experience(body)
 
     def _handle_query(self, payload: Dict[str, Any]) -> None:
