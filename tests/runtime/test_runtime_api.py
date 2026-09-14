@@ -272,6 +272,23 @@ class TestRuntimeAPI(unittest.TestCase):
         return base
 
     # -------------------------------------------------------------------------
+    # 0. Health check verification
+    # -------------------------------------------------------------------------
+    def test_runtime_health_endpoint(self):
+        req = urllib.request.Request(f"{self.runtime_base_url}/health")
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(data["status"], "UP")
+            self.assertEqual(data["service"], "pub-neural-runtime-backend")
+            self.assertIn("database", data)
+            self.assertIn("queue", data)
+            self.assertIn("pending", data["queue"])
+            self.assertIn("processing", data["queue"])
+            self.assertIn("completed", data["queue"])
+            self.assertIn("failed", data["queue"])
+
+    # -------------------------------------------------------------------------
     # 1. Security & Authentication
     # -------------------------------------------------------------------------
     def test_auth_missing_token_returns_401(self):

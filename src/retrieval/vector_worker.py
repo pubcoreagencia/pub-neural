@@ -1,10 +1,16 @@
 import hashlib
+import logging
+import os
+import signal
+import sys
+import threading
+import time
 import uuid
 from typing import Any, Dict, List, Optional
 import psycopg2
 from psycopg2.extras import RealDictCursor, register_uuid
 
-from .embedding_model import EmbeddingModelProvider
+from .embedding_model import EmbeddingModelProvider, get_embedding_provider
 
 
 # Register UUID adapter for psycopg2
@@ -40,9 +46,15 @@ class VectorIndexingWorker:
       - Non-destructive rebuildability: vectors can be deleted and 100% regenerated from source nodes/evidence.
     """
 
-    def __init__(self, db_url: str, embedding_provider: EmbeddingModelProvider):
+    def __init__(
+        self,
+        db_url: str,
+        embedding_provider: EmbeddingModelProvider,
+        lease_timeout_seconds: int = 300,
+    ):
         self.db_url = db_url
         self.provider = embedding_provider
+        self.lease_timeout_seconds = lease_timeout_seconds
         self._conn = None
 
     def _get_connection(self):
@@ -314,24 +326,26 @@ class VectorIndexingWorker:
 
         return stats
 
-    def claim_next_job(self) -> Optional[Dict[str, Any]]:
+    def claim_next_job(self, lease_timeout_seconds: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
-        Claim the next pending or retryable vector index job using SELECT ... FOR UPDATE SKIP LOCKED.
+        Claim the next pending or stale processing vector index job using SELECT ... FOR UPDATE SKIP LOCKED.
         Transitions job state to 'PROCESSING' with locked_at timestamp.
         Returns job row dict or None if queue is empty.
         """
+        timeout = lease_timeout_seconds if lease_timeout_seconds is not None else self.lease_timeout_seconds
         conn = self._get_connection()
         with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT node_id, target_type, status, attempts, max_attempts
                 FROM pub_neural.neural_vector_index_jobs
-                WHERE status = 'PENDING'
-                  AND available_at <= CURRENT_TIMESTAMP
+                WHERE (status = 'PENDING' AND available_at <= CURRENT_TIMESTAMP)
+                   OR (status = 'PROCESSING' AND locked_at < CURRENT_TIMESTAMP - (%s || ' seconds')::interval)
                 ORDER BY available_at ASC, node_id ASC
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1;
-                """
+                """,
+                (timeout,)
             )
             job = cur.fetchone()
             if not job:
@@ -441,4 +455,101 @@ class VectorIndexingWorker:
             else:
                 stats["retried"] += 1
         return stats
+
+
+def run_worker_daemon(
+    db_url: str,
+    provider: Optional[EmbeddingModelProvider] = None,
+    poll_interval: float = 2.0,
+    batch_size: int = 50,
+    lease_timeout_seconds: int = 300,
+    stop_event: Optional[threading.Event] = None,
+) -> None:
+    """
+    Continuous runner for VectorIndexingWorker.
+    Polls queue, processes batches, handles graceful shutdown on SIGINT/SIGTERM,
+    sleeps poll_interval when queue is empty.
+    """
+    logger = logging.getLogger("VectorWorkerDaemon")
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter("%(asctime)s [%(levelname)s] [%(name)s] %(message)s")
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+
+    if provider is None:
+        provider = get_embedding_provider()
+
+    worker = VectorIndexingWorker(
+        db_url=db_url,
+        embedding_provider=provider,
+        lease_timeout_seconds=lease_timeout_seconds,
+    )
+
+    shutdown_event = stop_event if stop_event is not None else threading.Event()
+
+    def _handle_signal(signum, frame):
+        logger.info(f"Signal {signum} received, initiating graceful worker shutdown...")
+        shutdown_event.set()
+
+    # Register signals only in main thread
+    if threading.current_thread() is threading.main_thread():
+        try:
+            signal.signal(signal.SIGINT, _handle_signal)
+            signal.signal(signal.SIGTERM, _handle_signal)
+        except (ValueError, AttributeError):
+            pass
+
+    logger.info(
+        f"Starting vector indexing worker daemon (poll={poll_interval}s, "
+        f"batch_size={batch_size}, lease_timeout={lease_timeout_seconds}s, "
+        f"model={provider.model_id}, dim={provider.dimension})..."
+    )
+
+    try:
+        while not shutdown_event.is_set():
+            try:
+                stats = worker.process_pending_jobs(max_batch=batch_size)
+                if stats["claimed"] > 0:
+                    logger.info(
+                        f"Processed batch: claimed={stats['claimed']}, "
+                        f"completed={stats['completed']}, failed={stats['failed']}, retried={stats['retried']}"
+                    )
+                else:
+                    # Queue is empty, sleep for poll_interval with early stop check
+                    shutdown_event.wait(timeout=poll_interval)
+            except psycopg2.OperationalError as oe:
+                logger.warning(f"Database connection error in worker daemon: {oe}. Retrying in {poll_interval}s...")
+                worker.close()
+                shutdown_event.wait(timeout=poll_interval)
+            except Exception as e:
+                logger.error(f"Unexpected error in vector worker daemon loop: {e}", exc_info=True)
+                shutdown_event.wait(timeout=poll_interval)
+    finally:
+        logger.info("Closing vector worker connections...")
+        worker.close()
+        logger.info("Vector indexing worker daemon stopped cleanly.")
+
+
+if __name__ == "__main__":
+    db_host = os.getenv("DB_HOST", "127.0.0.1")
+    db_port = os.getenv("DB_PORT", "54388")
+    db_name = os.getenv("DB_NAME", "pub_neural")
+    admin_user = os.getenv("ADMIN_USER", "postgres")
+    admin_pass = os.getenv("ADMIN_PASS", "postgres")
+    default_db_url = f"postgresql://{admin_user}:{admin_pass}@{db_host}:{db_port}/{db_name}"
+
+    database_url = os.getenv("PUB_NEURAL_DB_URL") or os.getenv("DB_URL") or default_db_url
+    poll_sec = float(os.getenv("VECTOR_WORKER_POLL_SECONDS", "2.0"))
+    batch = int(os.getenv("VECTOR_WORKER_BATCH_SIZE", "50"))
+    lease_sec = int(os.getenv("VECTOR_WORKER_LEASE_SECONDS", "300"))
+
+    run_worker_daemon(
+        db_url=database_url,
+        poll_interval=poll_sec,
+        batch_size=batch,
+        lease_timeout_seconds=lease_sec,
+    )
+
 

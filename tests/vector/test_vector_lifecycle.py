@@ -17,6 +17,8 @@ Tests cover:
 
 import os
 import unittest
+import threading
+import time
 import uuid
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -26,6 +28,7 @@ from src.retrieval.vector_worker import (
     VectorIndexingWorker,
     compute_content_hash,
     compute_vector_id,
+    run_worker_daemon,
 )
 from src.retrieval.hybrid_search import HybridSearchEngine
 from runtime.backend.entrypoint import PostgresExperienceSink
@@ -68,6 +71,13 @@ class TestVectorLifecycleV02(unittest.TestCase):
         self.search_engine = HybridSearchEngine(ADMIN_URL, self.provider)
         self.sink = PostgresExperienceSink(db_url=ADMIN_URL)
         self.exp_service = NeuralExperienceService(self.sink)
+
+        # Clear vector queue jobs between tests to guarantee state isolation
+        conn = psycopg2.connect(ADMIN_URL)
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM pub_neural.neural_vector_index_jobs;")
+        conn.close()
 
     def _create_sample_experience(self, task_id: str, project_id: str = "pub-dev-loop") -> NeuralExperienceRecord:
         return NeuralExperienceRecord(
@@ -464,6 +474,181 @@ class TestVectorLifecycleV02(unittest.TestCase):
         # Jobs claimed MUST be distinct
         self.assertNotEqual(job_a["node_id"], job_b["node_id"])
 
+    def test_vec_15_stale_processing_lease_reclaim(self):
+        """VEC-15: PROCESSING jobs older than lease_timeout are safely reclaimed and re-executed."""
+        task_id = f"task-vec15-{uuid.uuid4().hex[:6]}"
+        record = self._create_sample_experience(task_id)
+        self.exp_service.record(record)
+
+        node_id = f"experience:pub-dev-loop:{task_id}"
+
+        # 1. Claim job to put it in PROCESSING status
+        worker1 = VectorIndexingWorker(ADMIN_URL, self.provider, lease_timeout_seconds=5)
+        job = worker1.claim_next_job()
+        self.assertIsNotNone(job)
+        self.assertEqual(job["status"], "PROCESSING")
+        self.assertEqual(job["node_id"], node_id)
+
+        # 2. Simulate worker crash by artificially aging locked_at beyond lease_timeout (e.g. 10s ago)
+        conn = psycopg2.connect(ADMIN_URL)
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE pub_neural.neural_vector_index_jobs
+                SET locked_at = CURRENT_TIMESTAMP - INTERVAL '15 seconds'
+                WHERE node_id = %s;
+                """,
+                (node_id,)
+            )
+        conn.close()
+
+        # 3. Fresh worker reclaims stale PROCESSING job
+        worker2 = VectorIndexingWorker(ADMIN_URL, self.provider, lease_timeout_seconds=5)
+        reclaimed_job = worker2.claim_next_job()
+        self.assertIsNotNone(reclaimed_job)
+        self.assertEqual(reclaimed_job["node_id"], node_id)
+        self.assertEqual(reclaimed_job["status"], "PROCESSING")
+
+        # 4. Worker processes reclaimed job to COMPLETED
+        res = worker2.process_job(node_id)
+        self.assertEqual(res["status"], "COMPLETED")
+
+        # Verify DB state is COMPLETED
+        conn = psycopg2.connect(ADMIN_URL, cursor_factory=RealDictCursor)
+        with conn.cursor() as cur:
+            cur.execute("SELECT status FROM pub_neural.neural_vector_index_jobs WHERE node_id = %s;", (node_id,))
+            row = cur.fetchone()
+            self.assertEqual(row["status"], "COMPLETED")
+        conn.close()
+
+    def test_vec_16_active_processing_lease_not_stolen(self):
+        """VEC-16: An actively PROCESSING job within lease timeout is NOT stolen by another worker."""
+        task_id = f"task-vec16-{uuid.uuid4().hex[:6]}"
+        record = self._create_sample_experience(task_id)
+        self.exp_service.record(record)
+
+        # Worker 1 claims job
+        worker1 = VectorIndexingWorker(ADMIN_URL, self.provider, lease_timeout_seconds=300)
+        job1 = worker1.claim_next_job()
+        self.assertIsNotNone(job1)
+
+        # Worker 2 with same 300s lease attempts to claim immediately (should only get other pending jobs or None)
+        worker2 = VectorIndexingWorker(ADMIN_URL, self.provider, lease_timeout_seconds=300)
+        # Drain any other job
+        job2 = worker2.claim_next_job()
+        if job2:
+            # Must NOT be job1's node_id
+            self.assertNotEqual(job2["node_id"], job1["node_id"])
+
+    def test_vec_17_daemon_runner_processes_batch_and_stops(self):
+        """VEC-17: run_worker_daemon processes pending jobs and shuts down gracefully via stop_event."""
+        task_id = f"task-vec17-{uuid.uuid4().hex[:6]}"
+        record = self._create_sample_experience(task_id)
+        self.exp_service.record(record)
+
+        stop_event = threading.Event()
+        # Start daemon in thread
+        daemon_thread = threading.Thread(
+            target=run_worker_daemon,
+            kwargs={
+                "db_url": ADMIN_URL,
+                "provider": self.provider,
+                "poll_interval": 0.2,
+                "batch_size": 10,
+                "lease_timeout_seconds": 60,
+                "stop_event": stop_event,
+            },
+            daemon=True,
+        )
+        daemon_thread.start()
+
+        # Wait up to 3 seconds for job to be completed by daemon
+        node_id = f"experience:pub-dev-loop:{task_id}"
+        completed = False
+        conn = psycopg2.connect(ADMIN_URL, cursor_factory=RealDictCursor)
+        for _ in range(30):
+            with conn.cursor() as cur:
+                cur.execute("SELECT status FROM pub_neural.neural_vector_index_jobs WHERE node_id = %s;", (node_id,))
+                r = cur.fetchone()
+                if r and r["status"] == "COMPLETED":
+                    completed = True
+                    break
+            time.sleep(0.1)
+        conn.close()
+
+        # Signal shutdown and join
+        stop_event.set()
+        daemon_thread.join(timeout=3.0)
+        self.assertFalse(daemon_thread.is_alive())
+        self.assertTrue(completed)
+
+    def test_vec_18_worker_restart_recovers_unprocessed_queue(self):
+        """VEC-18: Worker restart cleanly picks up unprocessed queue items without duplicates."""
+        task_ids = [f"task-vec18-a-{uuid.uuid4().hex[:6]}", f"task-vec18-b-{uuid.uuid4().hex[:6]}"]
+        for tid in task_ids:
+            self.exp_service.record(self._create_sample_experience(tid))
+
+        # Worker instance 1 crashes/closes after claiming 0 jobs
+        worker_initial = VectorIndexingWorker(ADMIN_URL, self.provider)
+        worker_initial.close()
+
+        # Restarted worker instance 2 processes all
+        worker_restarted = VectorIndexingWorker(ADMIN_URL, self.provider)
+        stats = worker_restarted.process_pending_jobs(max_batch=10)
+        self.assertGreaterEqual(stats["completed"], 2)
+
+    def test_vec_19_crashed_worker_reclaimed_by_subsequent_daemon(self):
+        """VEC-19: Job left in PROCESSING by dead worker is reclaimed and completed by fresh worker."""
+        task_id = f"task-vec19-{uuid.uuid4().hex[:6]}"
+        self.exp_service.record(self._create_sample_experience(task_id))
+        node_id = f"experience:pub-dev-loop:{task_id}"
+
+        # Crash simulation: claim and abandon connection
+        conn_dead = psycopg2.connect(ADMIN_URL, cursor_factory=RealDictCursor)
+        with conn_dead.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE pub_neural.neural_vector_index_jobs
+                SET status = 'PROCESSING',
+                    locked_at = CURRENT_TIMESTAMP - INTERVAL '60 seconds'
+                WHERE node_id = %s;
+                """,
+                (node_id,)
+            )
+        conn_dead.commit()
+        conn_dead.close()
+
+        # Fresh worker with 30s lease timeout reclaims it
+        fresh_worker = VectorIndexingWorker(ADMIN_URL, self.provider, lease_timeout_seconds=30)
+        job = fresh_worker.claim_next_job()
+        self.assertIsNotNone(job)
+        self.assertEqual(job["node_id"], node_id)
+        res = fresh_worker.process_job(node_id)
+        self.assertEqual(res["status"], "COMPLETED")
+
+    def test_vec_20_non_blocking_ingestion_under_stopped_worker(self):
+        """VEC-20: Experience ingestion succeeds and writes experience even when vector worker is stopped."""
+        task_id = f"task-vec20-{uuid.uuid4().hex[:6]}"
+        record = self._create_sample_experience(task_id)
+
+        # Worker is NOT running. Ingestion must succeed immediately.
+        result = self.exp_service.record(record)
+        self.assertEqual(result.status, ExperienceWritebackStatus.ACCEPTED)
+
+        # Verify job is queued safely as PENDING
+        conn = psycopg2.connect(ADMIN_URL, cursor_factory=RealDictCursor)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT status FROM pub_neural.neural_vector_index_jobs WHERE node_id = %s;",
+                (f"experience:pub-dev-loop:{task_id}",)
+            )
+            job = cur.fetchone()
+            self.assertIsNotNone(job)
+            self.assertEqual(job["status"], "PENDING")
+        conn.close()
+
 
 if __name__ == "__main__":
     unittest.main()
+

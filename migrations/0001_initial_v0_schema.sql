@@ -446,7 +446,7 @@ CREATE INDEX IF NOT EXISTS idx_neural_vectors_security ON pub_neural.neural_vect
 CREATE INDEX IF NOT EXISTS idx_neural_fts_gin ON pub_neural.neural_fts USING gin (tsv_document);
 CREATE INDEX IF NOT EXISTS idx_neural_fts_security ON pub_neural.neural_fts (trust_zone, project_id);
 
-CREATE INDEX IF NOT EXISTS idx_neural_vector_index_jobs_queue ON pub_neural.neural_vector_index_jobs (status, available_at) WHERE status IN ('PENDING', 'FAILED');
+CREATE INDEX IF NOT EXISTS idx_neural_vector_index_jobs_queue ON pub_neural.neural_vector_index_jobs (status, available_at, locked_at) WHERE status IN ('PENDING', 'PROCESSING', 'FAILED');
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_neural_community_current_active ON pub_neural.neural_community_reports(level, cluster_id) WHERE is_current = TRUE;
 CREATE INDEX IF NOT EXISTS idx_neural_community_generation ON pub_neural.neural_community_reports (generation_id);

@@ -128,12 +128,37 @@ class RuntimeRequestHandler(BaseHTTPRequestHandler):
             path = "/"
 
         if path == "/health":
+            db_status = "DOWN"
+            queue_stats = {"pending": 0, "processing": 0, "completed": 0, "failed": 0}
+            try:
+                import psycopg2
+                conn = psycopg2.connect(self.server_config.db_url, connect_timeout=3)
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT status, count(*) 
+                        FROM pub_neural.neural_vector_index_jobs 
+                        GROUP BY status;
+                        """
+                    )
+                    for row in cur.fetchall():
+                        st = str(row[0]).lower()
+                        cnt = int(row[1])
+                        if st in queue_stats:
+                            queue_stats[st] = cnt
+                    db_status = "UP"
+                conn.close()
+            except Exception:
+                db_status = "DOWN"
+
             self._send_json(
                 200,
                 {
                     "status": "UP",
                     "service": "pub-neural-runtime-backend",
                     "version": "v0.1.0",
+                    "database": db_status,
+                    "queue": queue_stats,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
             )
