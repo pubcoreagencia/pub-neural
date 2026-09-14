@@ -3,14 +3,15 @@
 ## Status
 
 ```text
-STATUS: PHASE_E1_PRE_TASK_KNOWLEDGE_GATE_ACTIVATED
+STATUS: PHASE_E2_POST_TASK_EXPERIENCE_GATE_ACTIVATED
 IMPLEMENTATION STATUS:
   - Phase A (Contracts & Boundaries): IMPLEMENTED (src/gate/models.py, src/gate/enums.py)
   - Phase B (Neural Query Service): IMPLEMENTED (src/gate/service.py, src/gate/retrieval_adapter.py, tests/gate/test_query_service.py)
   - Phase C (PDL Query Adapter): IMPLEMENTED (pubcoreagencia/pub-dev-loop: src/pdl/neural/query-types.ts, src/pdl/neural/query-transport.ts, src/pdl/neural/query-adapter.ts, tests/pdl/neural-query-adapter.test.ts)
   - Phase D (Experience Writeback): IMPLEMENTED (src/gate/experience_service.py, tests/gate/test_experience_service.py, and pubcoreagencia/pub-dev-loop: src/pdl/neural/experience-types.ts, src/pdl/neural/experience-transport.ts, src/pdl/neural/experience-adapter.ts, tests/pdl/neural-experience-adapter.test.ts)
   - Phase E1 (Pre-Task Knowledge Gate): IMPLEMENTED (pubcoreagencia/pub-dev-loop: src/pdl/neural/pre-task-gate.ts, src/office/context-assembly.ts, src/router-worker.ts, tests/pdl/pre-task-knowledge-gate.test.ts)
-  - Phase E2 / F (Closed-Loop / Controlled E2E Gate Integration): NOT IMPLEMENTED / TARGET ARCHITECTURE
+  - Phase E2 (Post-Task Experience Gate): IMPLEMENTED (pubcoreagencia/pub-dev-loop: src/pdl/neural/post-task-gate.ts, src/pdl/neural/neural-bridge.ts, src/worker-service.ts, src/router-worker.ts, src/pdl/worker/correction-worker.ts, tests/pdl/post-task-experience-gate.test.ts)
+  - Phase F (Controlled E2E Gate Integration): NOT IMPLEMENTED / TARGET ARCHITECTURE
 CANONICAL TARGET BASELINE: v0.2
 GOVERNANCE CHECKPOINT: 2026-09-14
 ```
@@ -441,7 +442,14 @@ CLASSIFICATION: ROADMAP & STATUS
   - *IMPLEMENTED:* Pre-task query integration point; task-context → Neural query mapping; controlled context assembly; semantic status handling (SUCCESS, NO_MATCH, ABSTAIN, CONFLICT, STALE, UNAVAILABLE, INTERNAL_ERROR, INVALID_REQUEST); data-only enforcement; traceability; tests.
   - *NOT IMPLEMENTED:* Automatic post-task writeback; full bidirectional runtime loop; autonomous cognitive loop; automatic knowledge promotion.
   - *PRINCIPLE:* `E1 = READ PATH ACTIVATED` | `E1 ≠ FULL BIDIRECTIONAL LOOP`.
-- **Phase E2 — Validation / Tests:** `NOT IMPLEMENTED / TARGET` Executar a matriz completa de testes de integração com mocks determinísticos.
+- **Phase E2 — Post-Task Experience Gate:** `POST-TASK EXPERIENCE GATE IMPLEMENTED` (Single deterministic post-task cognitive write boundary in `pubcoreagencia/pub-dev-loop`: `PostTaskExperienceGate` in `src/pdl/neural/post-task-gate.ts`, factual task experience record construction via `buildExperienceRecord()`, evaluation via `evaluatePostTaskExperience()`, canonical integration into `DefaultPubNeuralBridge.ingestTaskCompleted()` in `src/pdl/neural/neural-bridge.ts`, worker wiring in `BaseWorker`, `RouterWorker`, and `PdlCorrectionWorker`, fail-open default policy with `TRANSPORT_UNAVAILABLE`, `NEURAL_INTERNAL_ERROR`, and `SCHEMA_VALIDATION_FAILED` observability categories, factual preservation of candidate findings without automatic promotion (`CANDIDATE != VALIDATED != ADOPTED`), factual evidence and provenance preservation with zero fabrication, idempotency handling with `DUPLICATE` semantic status, strict CQRS separation via `PubNeuralExperienceClient`, and comprehensive 20-scenario unit test suite in `tests/pdl/post-task-experience-gate.test.ts`).
+  - *IMPLEMENTED:* Single canonical post-task writeback boundary; factual execution state mapping (task, commitSha, remoteSha, branch, evidence, candidateFindings); distinct 5 writeback semantic statuses (ACCEPTED, DUPLICATE, INVALID_REQUEST, UNAVAILABLE, INTERNAL_ERROR); fail-open default policy (Neural transport/service errors do not fail verified tasks); zero provenance fabrication; candidate findings preservation; idempotency; CQRS isolation; 20-scenario test suite.
+  - *NOT IMPLEMENTED:* Autonomous cognitive loop; automatic LLM lesson generation; automatic promotion of candidate findings (Candidate -> Validated); autonomous backlog generation; network HTTP daemon for Neural.
+  - *INVARIANT FORMULAS:*
+    - `E1 = READ PATH ACTIVE`
+    - `E2 = WRITE PATH ACTIVE`
+    - `E1 + E2 = BIDIRECTIONAL RUNTIME FOUNDATION`
+    - `E1 + E2 ≠ AUTONOMOUS COGNITIVE LOOP`
 - **Phase F — Controlled E2E:** `NOT IMPLEMENTED / TARGET` Validação ponta a ponta com repositório piloto em ambiente controlado.
 
 ---
