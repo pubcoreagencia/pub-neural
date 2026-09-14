@@ -57,9 +57,9 @@ CLASSIFICATION: FACTUAL RUNTIME & CONTROLLED INTEGRATION
 
 - **Distinção Fundamental de Realidade:**
   - `CONTROLLED BIDIRECTIONAL LOOP = VALIDATED`
-  - `PRODUCTION NETWORK TRANSPORT = NOT IMPLEMENTED`
-  - `AUTONOMOUS COGNITIVE LOOP = NOT IMPLEMENTED`
-  - Não existe servidor HTTP ativo, API REST, conector MCP nem daemon de rede de produção. A validação ponta a ponta utilizou o bridge runner in-process/CLI controlado (`src.gate.bridge_runner` e `controlled-transport.ts`).
+  - `RUNTIME NETWORK API (HTTP V0.1) = IMPLEMENTED & PASSING` (POST /api/v1/runtime/query & POST /api/v1/runtime/experience)
+  - `TASK EXPERIENCE PROJECTOR = IMPLEMENTED` (TASK_EXPERIENCE_RECORDED -> neural_nodes [OBSERVED/CANDIDATE], neural_edges [DERIVED_FROM], neural_fts)
+  - `AUTONOMOUS COGNITIVE CYCLE = NOT IMPLEMENTED` (Machine learning self-promotion remains strictly forbidden without human/CEO governance approval)
 
 ---
 

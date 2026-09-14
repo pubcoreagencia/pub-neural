@@ -102,6 +102,8 @@ class NeuralResultMapper:
             "pattern": KnowledgeClass.PATTERN,
             "lesson": KnowledgeClass.LESSON,
             "skill": KnowledgeClass.SKILL,
+            "experience": KnowledgeClass.LESSON,
+            "finding": KnowledgeClass.LESSON,
             "project": KnowledgeClass.PROJECT,
             "repo": KnowledgeClass.REPOSITORY,
             "repository": KnowledgeClass.REPOSITORY,

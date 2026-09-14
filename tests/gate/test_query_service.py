@@ -555,6 +555,44 @@ class TestNeuralQueryService(unittest.TestCase):
         # Ensure neither item was deleted or auto-resolved
         self.assertEqual(len(response.results), 2)
 
+    def test_experience_and_finding_retrieval_mapping(self):
+        """Prove that projected task experience and candidate finding nodes are mapped correctly as LESSON."""
+        raw_exp = {
+            "id": "experience:pub-dev-loop:TASK-EXP-PROJ-01",
+            "title": "Task Experience: TASK-EXP-PROJ-01",
+            "snippet": "Task TASK-EXP-PROJ-01 completed with status COMPLETED in repository pubcoreagencia/pub-dev-loop on branch main at commit 7128eba0.",
+            "project_id": "pub-dev-loop",
+            "promotion_state": "OBSERVED",
+            "trust_zone": "tz_internal_holding",
+        }
+        raw_finding = {
+            "id": "finding:pub-dev-loop:TASK-EXP-PROJ-01:1",
+            "title": "Deterministic Projection Isolation",
+            "snippet": "All projected state must derive strictly from event timestamps without wall-clock drift.",
+            "project_id": "pub-dev-loop",
+            "promotion_state": "CANDIDATE",
+            "trust_zone": "tz_internal_holding",
+        }
+        batch = RetrievalBatch(results=[raw_exp, raw_finding])
+        engine = FakeRetrievalEngine(batch=batch)
+        service = NeuralQueryService(retrieval_engine=engine)
+
+        request = self._build_valid_request(classes=[KnowledgeClass.LESSON], project_id="pub-dev-loop")
+        response = service.query(request)
+
+        self.assertEqual(response.status, GateStatus.SUCCESS)
+        self.assertEqual(len(response.results), 2)
+
+        exp_item = response.results[0]
+        self.assertEqual(exp_item.knowledge_class, KnowledgeClass.LESSON)
+        self.assertEqual(exp_item.promotion_state, PromotionState.OBSERVED)
+        self.assertTrue(exp_item.authority.is_data_only)
+
+        finding_item = response.results[1]
+        self.assertEqual(finding_item.knowledge_class, KnowledgeClass.LESSON)
+        self.assertEqual(finding_item.promotion_state, PromotionState.CANDIDATE)
+        self.assertTrue(finding_item.authority.is_data_only)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -452,6 +452,74 @@ class TestRuntimeAPI(unittest.TestCase):
         finally:
             RuntimeRequestHandler.experience_service = original_service
 
+    def test_e2e_closed_loop_experience_write_and_subsequent_query(self):
+        """
+        Prove end-to-end cognitive feedback loop:
+        1. Task A sends POST /api/v1/runtime/experience with CandidateFinding.
+        2. Experience is accepted and stored in the sink.
+        3. Retrieval engine indexes the projected experience/candidate finding.
+        4. Task B executes POST /api/v1/runtime/query and retrieves Task A's candidate finding.
+        """
+        task_a_id = f"task-a-{uuid.uuid4().hex[:6]}"
+        finding_title = "Idempotent Replay Prevents Invariant Violation"
+        finding_stmt = "Projectors must never overwrite stronger authoritative state."
+
+        exp_payload = self._make_valid_experience_payload(
+            taskId=task_a_id,
+            objective="Harden projector engine against state escalation",
+            candidateFindings=[
+                {
+                    "finding_type": "LESSON",
+                    "title": finding_title,
+                    "statement": finding_stmt,
+                    "scope": "PROJECT",
+                    "confidence": 0.99,
+                }
+            ],
+        )
+
+        # Step 1: POST /api/v1/runtime/experience
+        code_exp, data_exp = self._http_post("/api/v1/runtime/experience", exp_payload, token=self.test_token)
+        self.assertEqual(code_exp, 200)
+        self.assertEqual(data_exp["status"], "ACCEPTED")
+        self.assertFalse(data_exp["isDuplicate"])
+        self.assertEqual(data_exp["candidateFindingsCount"], 1)
+
+        # Step 2: Simulate projected candidate finding in retrieval engine
+        projected_finding_id = f"finding:pub-ecom:{task_a_id}:1"
+        raw_retrieved_item = {
+            "id": projected_finding_id,
+            "title": finding_title,
+            "snippet": finding_stmt,
+            "project_id": "pub-ecom",
+            "promotion_state": "CANDIDATE",
+            "trust_zone": "tz_internal_holding",
+        }
+        self.retrieval_engine.custom_batch = RetrievalBatch(results=[raw_retrieved_item])
+
+        try:
+            # Step 3: Task B queries for knowledge discovered in Task A
+            query_payload = self._make_valid_query_payload(
+                taskId=f"task-b-{uuid.uuid4().hex[:6]}",
+                objective="Retrieve lessons on projector state escalation",
+                requestedKnowledgeClasses=["LESSON"],
+            )
+
+            code_q, data_q = self._http_post("/api/v1/runtime/query", query_payload, token=self.test_token)
+            self.assertEqual(code_q, 200)
+            self.assertEqual(data_q["status"], "SUCCESS")
+            evidence_list = data_q.get("evidence", data_q.get("results", []))
+            self.assertEqual(len(evidence_list), 1)
+
+            retrieved = evidence_list[0]
+            self.assertEqual(retrieved["id"], projected_finding_id)
+            self.assertEqual(retrieved["title"], finding_title)
+            self.assertEqual(retrieved.get("knowledge_class", retrieved.get("knowledgeClass")), "LESSON")
+            self.assertEqual(retrieved.get("promotion_state", retrieved.get("promotionState")), "CANDIDATE")
+            self.assertTrue(retrieved["authority"]["is_data_only"])
+        finally:
+            self.retrieval_engine.custom_batch = None
+
     # -------------------------------------------------------------------------
     # 4. Console Isolation Verification
     # -------------------------------------------------------------------------

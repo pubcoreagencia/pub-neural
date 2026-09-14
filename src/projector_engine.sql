@@ -54,6 +54,13 @@ DECLARE
     v_target_type VARCHAR(32);
     v_target_id VARCHAR(128);
     v_source_blob pub_neural.source_blobs%ROWTYPE;
+    v_exp_node_id VARCHAR(128);
+    v_finding_elem JSONB;
+    v_finding_node_id VARCHAR(128);
+    v_finding_idx INT;
+    v_finding_type VARCHAR(64);
+    v_finding_class pub_neural.neural_entity_type;
+    v_finding_edge_id UUID;
 BEGIN
     -- ------------------------------------------------------------------------
     -- 1. SOURCE_INGESTED -> neural_sources
@@ -461,6 +468,183 @@ BEGIN
         ELSE
             RETURN 'MALFORMED';
         END IF;
+
+    -- ------------------------------------------------------------------------
+    -- 12. TASK_EXPERIENCE_RECORDED -> neural_nodes, neural_edges, neural_fts
+    -- Governed Observational/Candidate Projection (V0.1)
+    -- Preserves task identity, commit, repository, validation, and candidate findings.
+    -- Never escalates authority beyond CANDIDATE/OBSERVED.
+    -- ------------------------------------------------------------------------
+    ELSIF p_event.event_type = 'TASK_EXPERIENCE_RECORDED' THEN
+        IF (p_event.payload->>'taskId' IS NULL AND p_event.payload->>'task_id' IS NULL)
+           OR (p_event.payload->>'projectId' IS NULL AND p_event.payload->>'project_id' IS NULL)
+           OR p_event.payload->>'repository' IS NULL THEN
+            RETURN 'MALFORMED';
+        END IF;
+
+        v_exp_node_id := 'experience:' || COALESCE(p_event.payload->>'projectId', p_event.payload->>'project_id') || ':' || COALESCE(p_event.payload->>'taskId', p_event.payload->>'task_id');
+        v_valid_from := COALESCE((p_event.payload->>'completedAt')::timestamptz, (p_event.payload->>'completed_at')::timestamptz, p_event.recorded_at);
+
+        -- 12.1 Project primary task experience node
+        INSERT INTO pub_neural.neural_nodes (
+            id, entity_type, title, slug, summary, content, trust_zone, scope, project_id,
+            promotion_state, promotion_reason, conflict_state, confidence_score, valid_from, recorded_from,
+            is_active, originating_event_id, last_transition_event_id, created_at, updated_at
+        ) VALUES (
+            v_exp_node_id,
+            'LESSON',
+            'Task Experience: ' || COALESCE(p_event.payload->>'taskId', p_event.payload->>'task_id'),
+            lower(replace(v_exp_node_id, ':', '-')),
+            COALESCE(p_event.payload->>'objective', 'Task execution recorded'),
+            'Task ' || COALESCE(p_event.payload->>'taskId', p_event.payload->>'task_id') ||
+            ' completed with status ' || COALESCE(p_event.payload->>'status', 'UNKNOWN') ||
+            ' in repository ' || (p_event.payload->>'repository') ||
+            ' on branch ' || COALESCE(p_event.payload->>'branch', 'main') ||
+            CASE WHEN p_event.payload->>'commitSha' IS NOT NULL OR p_event.payload->>'commit_sha' IS NOT NULL
+                 THEN ' at commit ' || COALESCE(p_event.payload->>'commitSha', p_event.payload->>'commit_sha')
+                 ELSE '' END || '.',
+            COALESCE(p_event.payload->>'trust_zone', 'tz_internal_holding'),
+            'PROJECT',
+            COALESCE(p_event.payload->>'projectId', p_event.payload->>'project_id'),
+            'OBSERVED',
+            'Recorded via PDL experience gate',
+            'RESOLVED',
+            1.0,
+            v_valid_from,
+            p_event.recorded_at,
+            TRUE,
+            p_event.id,
+            p_event.id,
+            p_event.recorded_at,
+            p_event.recorded_at
+        )
+        ON CONFLICT (id) DO UPDATE SET
+            summary = EXCLUDED.summary,
+            content = EXCLUDED.content,
+            last_transition_event_id = EXCLUDED.last_transition_event_id,
+            updated_at = p_event.recorded_at
+        WHERE pub_neural.neural_nodes.promotion_state IN ('CAPTURED', 'OBSERVED', 'EXTRACTED', 'CANDIDATE');
+
+        -- 12.2 Update FTS index for primary experience node
+        INSERT INTO pub_neural.neural_fts (
+            id, trust_zone, project_id, language_config, tsv_document, updated_at
+        ) VALUES (
+            v_exp_node_id,
+            COALESCE(p_event.payload->>'trust_zone', 'tz_internal_holding'),
+            COALESCE(p_event.payload->>'projectId', p_event.payload->>'project_id'),
+            'portuguese',
+            setweight(to_tsvector('portuguese', 'Task Experience: ' || COALESCE(p_event.payload->>'taskId', p_event.payload->>'task_id')), 'A') ||
+            setweight(to_tsvector('portuguese', COALESCE(p_event.payload->>'objective', '')), 'B') ||
+            setweight(to_tsvector('portuguese', (p_event.payload->>'repository') || ' ' || COALESCE(p_event.payload->>'branch', '') || ' ' || COALESCE(p_event.payload->>'commitSha', p_event.payload->>'commit_sha', '')), 'C'),
+            p_event.recorded_at
+        )
+        ON CONFLICT (id) DO UPDATE SET
+            trust_zone = EXCLUDED.trust_zone,
+            project_id = EXCLUDED.project_id,
+            tsv_document = EXCLUDED.tsv_document,
+            updated_at = p_event.recorded_at;
+
+        -- 12.3 Project candidate findings if present in payload
+        IF (p_event.payload ? 'candidateFindings' AND jsonb_typeof(p_event.payload->'candidateFindings') = 'array')
+           OR (p_event.payload ? 'candidate_findings' AND jsonb_typeof(p_event.payload->'candidate_findings') = 'array') THEN
+            v_finding_idx := 0;
+            FOR v_finding_elem IN SELECT * FROM jsonb_array_elements(COALESCE(p_event.payload->'candidateFindings', p_event.payload->'candidate_findings'))
+            LOOP
+                v_finding_idx := v_finding_idx + 1;
+                v_finding_node_id := 'finding:' || COALESCE(p_event.payload->>'projectId', p_event.payload->>'project_id') || ':' || COALESCE(p_event.payload->>'taskId', p_event.payload->>'task_id') || ':' || v_finding_idx::text;
+                
+                v_finding_type := COALESCE(v_finding_elem->>'finding_type', v_finding_elem->>'findingType', 'LESSON');
+                IF v_finding_type = 'PATTERN' THEN
+                    v_finding_class := 'PATTERN'::pub_neural.neural_entity_type;
+                ELSE
+                    v_finding_class := 'LESSON'::pub_neural.neural_entity_type;
+                END IF;
+
+                INSERT INTO pub_neural.neural_nodes (
+                    id, entity_type, title, slug, summary, content, trust_zone, scope, project_id,
+                    promotion_state, promotion_reason, conflict_state, confidence_score, valid_from, recorded_from,
+                    is_active, originating_event_id, last_transition_event_id, created_at, updated_at
+                ) VALUES (
+                    v_finding_node_id,
+                    v_finding_class,
+                    COALESCE(v_finding_elem->>'title', 'Candidate Finding ' || v_finding_idx::text),
+                    lower(replace(v_finding_node_id, ':', '-')),
+                    COALESCE(v_finding_elem->>'statement', v_finding_elem->>'title', ''),
+                    COALESCE(v_finding_elem->>'statement', ''),
+                    COALESCE(p_event.payload->>'trust_zone', 'tz_internal_holding'),
+                    COALESCE(v_finding_elem->>'scope', 'PROJECT'),
+                    COALESCE(p_event.payload->>'projectId', p_event.payload->>'project_id'),
+                    'CANDIDATE',
+                    'Discovered during task ' || COALESCE(p_event.payload->>'taskId', p_event.payload->>'task_id'),
+                    'RESOLVED',
+                    COALESCE((v_finding_elem->>'confidence')::float, 1.0),
+                    v_valid_from,
+                    p_event.recorded_at,
+                    TRUE,
+                    p_event.id,
+                    p_event.id,
+                    p_event.recorded_at,
+                    p_event.recorded_at
+                )
+                ON CONFLICT (id) DO UPDATE SET
+                    title = EXCLUDED.title,
+                    summary = EXCLUDED.summary,
+                    content = EXCLUDED.content,
+                    confidence_score = EXCLUDED.confidence_score,
+                    last_transition_event_id = EXCLUDED.last_transition_event_id,
+                    updated_at = p_event.recorded_at
+                WHERE pub_neural.neural_nodes.promotion_state IN ('CAPTURED', 'OBSERVED', 'EXTRACTED', 'CANDIDATE');
+
+                -- FTS for candidate finding
+                INSERT INTO pub_neural.neural_fts (
+                    id, trust_zone, project_id, language_config, tsv_document, updated_at
+                ) VALUES (
+                    v_finding_node_id,
+                    COALESCE(p_event.payload->>'trust_zone', 'tz_internal_holding'),
+                    COALESCE(p_event.payload->>'projectId', p_event.payload->>'project_id'),
+                    'portuguese',
+                    setweight(to_tsvector('portuguese', COALESCE(v_finding_elem->>'title', '')), 'A') ||
+                    setweight(to_tsvector('portuguese', COALESCE(v_finding_elem->>'statement', '')), 'B'),
+                    p_event.recorded_at
+                )
+                ON CONFLICT (id) DO UPDATE SET
+                    trust_zone = EXCLUDED.trust_zone,
+                    project_id = EXCLUDED.project_id,
+                    tsv_document = EXCLUDED.tsv_document,
+                    updated_at = p_event.recorded_at;
+
+                -- Edge: finding DERIVED_FROM experience node
+                v_finding_edge_id := pub_neural.uuid_generate_v5(
+                    v_ns,
+                    v_finding_node_id || ':DERIVED_FROM:' || v_exp_node_id
+                );
+
+                INSERT INTO pub_neural.neural_edges (
+                    id, source_id, target_id, relation_type, weight, is_bidirectional,
+                    trust_zone, scope, valid_from, recorded_from, is_active,
+                    originating_event_id, last_transition_event_id, created_at, updated_at
+                ) VALUES (
+                    v_finding_edge_id,
+                    v_finding_node_id,
+                    v_exp_node_id,
+                    'DERIVED_FROM',
+                    COALESCE((v_finding_elem->>'confidence')::float, 1.0),
+                    FALSE,
+                    COALESCE(p_event.payload->>'trust_zone', 'tz_internal_holding'),
+                    COALESCE(v_finding_elem->>'scope', 'PROJECT'),
+                    v_valid_from,
+                    p_event.recorded_at,
+                    TRUE,
+                    p_event.id,
+                    p_event.id,
+                    p_event.recorded_at,
+                    p_event.recorded_at
+                )
+                ON CONFLICT (id) DO NOTHING;
+            END LOOP;
+        END IF;
+
+        RETURN 'SUPPORTED';
 
     -- ------------------------------------------------------------------------
     -- Passthrough supported canonical events (manifest/bootstrap/governance)
