@@ -34,6 +34,24 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION pub_neural.reduce_event(
+    p_event_id UUID
+) RETURNS VARCHAR(32)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pub_neural, public
+AS $$
+DECLARE
+    v_event pub_neural.neural_events%ROWTYPE;
+BEGIN
+    SELECT * INTO v_event FROM pub_neural.neural_events WHERE id = p_event_id;
+    IF NOT FOUND THEN
+        RETURN 'REJECTED';
+    END IF;
+    RETURN pub_neural.reduce_event(v_event);
+END;
+$$;
+
 -- ----------------------------------------------------------------------------
 -- REDUCER DISPATCHER: Processes a single canonical event deterministically
 -- All projection timestamps are strictly derived from event.recorded_at
@@ -544,6 +562,25 @@ BEGIN
             tsv_document = EXCLUDED.tsv_document,
             updated_at = p_event.recorded_at;
 
+        -- 12.2b Enqueue durable vector indexing job for primary experience node (asynchronous)
+        INSERT INTO pub_neural.neural_vector_index_jobs (
+            node_id, target_type, status, available_at, updated_at
+        ) VALUES (
+            v_exp_node_id, 'NODE', 'PENDING', p_event.recorded_at, p_event.recorded_at
+        )
+        ON CONFLICT (node_id) DO UPDATE SET
+            status = CASE
+                WHEN pub_neural.neural_vector_index_jobs.status IN ('COMPLETED', 'PROCESSING')
+                     THEN pub_neural.neural_vector_index_jobs.status
+                ELSE 'PENDING'
+            END,
+            available_at = CASE
+                WHEN pub_neural.neural_vector_index_jobs.status IN ('COMPLETED', 'PROCESSING')
+                     THEN pub_neural.neural_vector_index_jobs.available_at
+                ELSE p_event.recorded_at
+            END,
+            updated_at = p_event.recorded_at;
+
         -- 12.3 Project candidate findings if present in payload
         IF (p_event.payload ? 'candidateFindings' AND jsonb_typeof(p_event.payload->'candidateFindings') = 'array')
            OR (p_event.payload ? 'candidate_findings' AND jsonb_typeof(p_event.payload->'candidate_findings') = 'array') THEN
@@ -611,6 +648,25 @@ BEGIN
                     trust_zone = EXCLUDED.trust_zone,
                     project_id = EXCLUDED.project_id,
                     tsv_document = EXCLUDED.tsv_document,
+                    updated_at = p_event.recorded_at;
+
+                -- Enqueue durable vector indexing job for candidate finding (asynchronous)
+                INSERT INTO pub_neural.neural_vector_index_jobs (
+                    node_id, target_type, status, available_at, updated_at
+                ) VALUES (
+                    v_finding_node_id, 'NODE', 'PENDING', p_event.recorded_at, p_event.recorded_at
+                )
+                ON CONFLICT (node_id) DO UPDATE SET
+                    status = CASE
+                        WHEN pub_neural.neural_vector_index_jobs.status IN ('COMPLETED', 'PROCESSING')
+                             THEN pub_neural.neural_vector_index_jobs.status
+                        ELSE 'PENDING'
+                    END,
+                    available_at = CASE
+                        WHEN pub_neural.neural_vector_index_jobs.status IN ('COMPLETED', 'PROCESSING')
+                             THEN pub_neural.neural_vector_index_jobs.available_at
+                        ELSE p_event.recorded_at
+                    END,
                     updated_at = p_event.recorded_at;
 
                 -- Edge: finding DERIVED_FROM experience node
@@ -865,6 +921,9 @@ GRANT EXECUTE ON FUNCTION pub_neural.uuid_generate_v5(UUID, TEXT) TO pub_neural_
 
 REVOKE ALL ON FUNCTION pub_neural.reduce_event(pub_neural.neural_events) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION pub_neural.reduce_event(pub_neural.neural_events) TO pub_neural_projector, pub_neural_admin, pub_neural_ceo;
+
+REVOKE ALL ON FUNCTION pub_neural.reduce_event(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION pub_neural.reduce_event(UUID) TO pub_neural_projector, pub_neural_admin, pub_neural_ceo;
 
 REVOKE ALL ON FUNCTION pub_neural.run_projector(VARCHAR, BIGINT, BIGINT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION pub_neural.run_projector(VARCHAR, BIGINT, BIGINT) TO pub_neural_projector, pub_neural_admin, pub_neural_ceo;

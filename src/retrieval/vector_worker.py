@@ -313,3 +313,132 @@ class VectorIndexingWorker:
                 stats["evidence_processed"] += 1
 
         return stats
+
+    def claim_next_job(self) -> Optional[Dict[str, Any]]:
+        """
+        Claim the next pending or retryable vector index job using SELECT ... FOR UPDATE SKIP LOCKED.
+        Transitions job state to 'PROCESSING' with locked_at timestamp.
+        Returns job row dict or None if queue is empty.
+        """
+        conn = self._get_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT node_id, target_type, status, attempts, max_attempts
+                FROM pub_neural.neural_vector_index_jobs
+                WHERE status = 'PENDING'
+                  AND available_at <= CURRENT_TIMESTAMP
+                ORDER BY available_at ASC, node_id ASC
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1;
+                """
+            )
+            job = cur.fetchone()
+            if not job:
+                conn.rollback()
+                return None
+
+            cur.execute(
+                """
+                UPDATE pub_neural.neural_vector_index_jobs
+                SET status = 'PROCESSING',
+                    locked_at = CURRENT_TIMESTAMP,
+                    attempts = attempts + 1,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE node_id = %s;
+                """,
+                (job["node_id"],)
+            )
+            conn.commit()
+            job["status"] = "PROCESSING"
+            job["attempts"] = job["attempts"] + 1
+            return job
+
+    def process_job(self, node_id: str, retry_delay_seconds: int = 5) -> Dict[str, Any]:
+        """
+        Process a single claimed vector job for node_id:
+        1. Invokes sync_node_vector(node_id).
+        2. On success: marks job COMPLETED, completed_at = CURRENT_TIMESTAMP.
+        3. On transient error: increments attempts, schedules available_at with backoff.
+           If attempts >= max_attempts, marks status FAILED.
+        Preserves source knowledge node intact under all outcomes.
+        """
+        conn = self._get_connection()
+        try:
+            res = self.sync_node_vector(node_id)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE pub_neural.neural_vector_index_jobs
+                    SET status = 'COMPLETED',
+                        completed_at = CURRENT_TIMESTAMP,
+                        last_error = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE node_id = %s;
+                    """,
+                    (node_id,)
+                )
+                conn.commit()
+            return {"status": "COMPLETED", "node_id": node_id, "detail": res}
+        except Exception as e:
+            err_msg = str(e)
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT attempts, max_attempts
+                    FROM pub_neural.neural_vector_index_jobs
+                    WHERE node_id = %s;
+                    """,
+                    (node_id,)
+                )
+                row = cur.fetchone()
+                attempts = row["attempts"] if row else 1
+                max_attempts = row["max_attempts"] if row else 3
+
+                if attempts >= max_attempts:
+                    cur.execute(
+                        """
+                        UPDATE pub_neural.neural_vector_index_jobs
+                        SET status = 'FAILED',
+                            last_error = %s,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE node_id = %s;
+                        """,
+                        (err_msg, node_id)
+                    )
+                else:
+                    delay = retry_delay_seconds * (2 ** (attempts - 1))
+                    cur.execute(
+                        """
+                        UPDATE pub_neural.neural_vector_index_jobs
+                        SET status = 'PENDING',
+                            available_at = CURRENT_TIMESTAMP + (%s || ' seconds')::interval,
+                            last_error = %s,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE node_id = %s;
+                        """,
+                        (delay, err_msg, node_id)
+                    )
+                conn.commit()
+            return {"status": "FAILED" if attempts >= max_attempts else "RETRY_SCHEDULED", "node_id": node_id, "error": err_msg}
+
+    def process_pending_jobs(self, max_batch: int = 50) -> Dict[str, int]:
+        """
+        Drain pending vector indexing jobs up to max_batch.
+        Safe for concurrent invocation across multiple worker processes.
+        """
+        stats = {"claimed": 0, "completed": 0, "failed": 0, "retried": 0}
+        for _ in range(max_batch):
+            job = self.claim_next_job()
+            if not job:
+                break
+            stats["claimed"] += 1
+            result = self.process_job(job["node_id"])
+            if result["status"] == "COMPLETED":
+                stats["completed"] += 1
+            elif result["status"] == "FAILED":
+                stats["failed"] += 1
+            else:
+                stats["retried"] += 1
+        return stats
+

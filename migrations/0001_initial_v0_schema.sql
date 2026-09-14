@@ -351,6 +351,21 @@ CREATE TABLE IF NOT EXISTS pub_neural.neural_fts (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS pub_neural.neural_vector_index_jobs (
+    node_id VARCHAR(128) PRIMARY KEY REFERENCES pub_neural.neural_nodes(id) ON DELETE CASCADE,
+    target_type VARCHAR(32) NOT NULL DEFAULT 'NODE',
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
+    available_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    locked_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    last_error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_vector_job_status CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'))
+);
+
 CREATE TABLE IF NOT EXISTS pub_neural.neural_community_reports (
     id VARCHAR(160) PRIMARY KEY,
     generation_id UUID NOT NULL,
@@ -430,6 +445,8 @@ CREATE INDEX IF NOT EXISTS idx_neural_vectors_security ON pub_neural.neural_vect
 
 CREATE INDEX IF NOT EXISTS idx_neural_fts_gin ON pub_neural.neural_fts USING gin (tsv_document);
 CREATE INDEX IF NOT EXISTS idx_neural_fts_security ON pub_neural.neural_fts (trust_zone, project_id);
+
+CREATE INDEX IF NOT EXISTS idx_neural_vector_index_jobs_queue ON pub_neural.neural_vector_index_jobs (status, available_at) WHERE status IN ('PENDING', 'FAILED');
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_neural_community_current_active ON pub_neural.neural_community_reports(level, cluster_id) WHERE is_current = TRUE;
 CREATE INDEX IF NOT EXISTS idx_neural_community_generation ON pub_neural.neural_community_reports (generation_id);
@@ -1254,8 +1271,10 @@ GRANT ALL ON pub_neural.neural_vectors TO pub_neural_projector;
 GRANT ALL ON pub_neural.neural_fts TO pub_neural_projector;
 GRANT ALL ON pub_neural.neural_community_reports TO pub_neural_projector;
 GRANT ALL ON pub_neural.neural_projection_checkpoints TO pub_neural_projector;
-GRANT ALL ON pub_neural.neural_idempotency_records TO pub_neural_app, pub_neural_projector;
-GRANT ALL ON pub_neural.neural_schema_versions TO pub_neural_projector;
+GRANT ALL ON pub_neural.neural_vector_index_jobs TO pub_neural_projector, pub_neural_ceo;
+GRANT SELECT ON pub_neural.neural_vector_index_jobs TO pub_neural_app;
+GRANT ALL ON pub_neural.neural_idempotency_records TO pub_neural_app, pub_neural_projector, pub_neural_ceo;
+GRANT ALL ON pub_neural.neural_schema_versions TO pub_neural_projector, pub_neural_ceo;
 
 -- Function Execution Grants
 GRANT EXECUTE ON FUNCTION pub_neural.establish_session_context(VARCHAR, TEXT, VARCHAR, VARCHAR) TO pub_neural_app;
