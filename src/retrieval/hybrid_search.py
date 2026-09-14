@@ -78,8 +78,38 @@ class HybridSearchEngine:
         When an enabled abstention policy rejects the candidate set, the method
         returns an empty result set rather than exposing low-confidence evidence.
         """
+        return self.search_detailed(
+            query=query,
+            bearer_token=bearer_token,
+            trust_zone=trust_zone,
+            project_id=project_id,
+            model_id=model_id,
+        ).get("results", [])
+
+    def search_detailed(
+        self,
+        query: str,
+        bearer_token: Optional[str] = None,
+        trust_zone: Optional[str] = None,
+        project_id: Optional[str] = None,
+        model_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute end-to-end hybrid retrieval with RLS enforcement and RRF,
+        returning full results and the explicit AbstentionDecision.
+        """
         if not query or not query.strip():
-            return []
+            decision = self.abstention_policy.evaluate(
+                lexical_results=[],
+                dense_results=[],
+                fused_results=[],
+            )
+            return {
+                "results": [],
+                "abstention_decision": decision,
+                "lexical_count": 0,
+                "dense_count": 0,
+            }
 
         active_model_id = model_id or self.provider.model_id
         conn = psycopg2.connect(self.db_url, cursor_factory=RealDictCursor)
@@ -113,12 +143,22 @@ class HybridSearchEngine:
                     dense_results=dense_results,
                     fused_results=fused,
                 )
-                if not decision.accepted:
-                    conn.commit()
-                    return []
-
                 conn.commit()
-                return fused[:self.final_limit]
+
+                if not decision.accepted:
+                    return {
+                        "results": [],
+                        "abstention_decision": decision,
+                        "lexical_count": len(lexical_results),
+                        "dense_count": len(dense_results),
+                    }
+
+                return {
+                    "results": fused[:self.final_limit],
+                    "abstention_decision": decision,
+                    "lexical_count": len(lexical_results),
+                    "dense_count": len(dense_results),
+                }
         finally:
             conn.close()
 

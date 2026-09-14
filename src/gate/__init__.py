@@ -1,6 +1,7 @@
 """
 Bidirectional Neural Knowledge Gate — Contracts and Boundaries Module.
-Provides canonical DTOs, Enums, and Validators for the PDL <-> PUB Neural interaction.
+Provides canonical DTOs, Enums, Validators, and the NeuralQueryService
+for the PDL <-> PUB Neural interaction.
 """
 
 from .enums import (
@@ -33,6 +34,13 @@ from .models import (
     ProvenanceMetadata,
     TaskEvidence,
 )
+from .retrieval_adapter import (
+    HybridSearchAdapter,
+    NeuralResultMapper,
+    NeuralRetrievalEngine,
+    RetrievalBatch,
+)
+from .service import NeuralQueryService
 
 __all__ = [
     # Enums
@@ -62,4 +70,10 @@ __all__ = [
     "NeuralQueryResponse",
     "ProvenanceMetadata",
     "TaskEvidence",
+    # Retrieval Adapter & Service Boundary
+    "HybridSearchAdapter",
+    "NeuralQueryService",
+    "NeuralResultMapper",
+    "NeuralRetrievalEngine",
+    "RetrievalBatch",
 ]

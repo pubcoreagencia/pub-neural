@@ -3,10 +3,11 @@
 ## Status
 
 ```text
-STATUS: PHASE_A_CONTRACTS_ESTABLISHED
+STATUS: PHASE_B_QUERY_SERVICE_ESTABLISHED
 IMPLEMENTATION STATUS:
-  - Phase A (Contracts & Boundaries): IMPLEMENTED NOW (src/gate/, tests/gate/)
-  - Phase B-F (Gate Runtime & Transport): NOT IMPLEMENTED / TARGET ARCHITECTURE
+  - Phase A (Contracts & Boundaries): IMPLEMENTED (src/gate/models.py, src/gate/enums.py)
+  - Phase B (Neural Query Service): IMPLEMENTED (src/gate/service.py, src/gate/retrieval_adapter.py, tests/gate/test_query_service.py)
+  - Phase C-F (Transport, PDL Integration, Writeback, Full Gate): NOT IMPLEMENTED / TARGET ARCHITECTURE
 CANONICAL TARGET BASELINE: v0.2
 GOVERNANCE CHECKPOINT: 2026-09-14
 ```
@@ -427,7 +428,8 @@ CLASSIFICATION: ROADMAP & STATUS
 ```
 
 - **Phase A — Contracts & Boundaries:** `CONTRACTS & BOUNDARIES IMPLEMENTED` (Canonical typed DTOs, closed enums, structural validation, serialization/deserialization, authority metadata, and 12-scenario test suite in `src/gate/` and `tests/gate/test_gate_contracts.py`).
-- **Phase B — Neural Query Adapter:** `NOT IMPLEMENTED / TARGET` Provisionar o adaptador de rede do Neural expondo `/v1/query` e `/v1/experience`.
+- **Phase B — Neural Query Service:** `QUERY SERVICE IMPLEMENTED` (Internal `NeuralQueryService` in `src/gate/service.py`, `HybridSearchAdapter` and `NeuralResultMapper` in `src/gate/retrieval_adapter.py`, `search_detailed()` in `src/retrieval/hybrid_search.py`, and 18-scenario unit test suite in `tests/gate/test_query_service.py`).
+  - *AINDA NÃO IMPLEMENTADO:* HTTP, REST, FastAPI, MCP, PDL Query Client, PDL Runtime Integration, Experience Writeback, Bidirectional Gate Runtime, Autonomous Cognitive Loop.
 - **Phase C — PDL Pre-Execution Context:** `NOT IMPLEMENTED / TARGET` Implementar `query()` no client do PDL e integrar ao `ContextAssemblyEngine`.
 - **Phase D — Experience Writeback:** `NOT IMPLEMENTED / TARGET` Integrar `recordPostTaskExperience()` ao ciclo pós-Persistence Gate.
 - **Phase E — Validation / Tests:** `NOT IMPLEMENTED / TARGET` Executar a matriz completa de testes de integração com mocks determinísticos.
