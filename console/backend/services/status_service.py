@@ -24,38 +24,55 @@ def get_system_status(
     pg_version = pg_ver_row["version"] if pg_ver_row else None
 
     # Check checkpoints
-    cur.execute("""
-        SELECT projector_name, last_processed_global_sequence, status, last_checkpoint_at, error_detail
-        FROM pub_neural.neural_projection_checkpoints
-        ORDER BY projector_name ASC;
-    """)
-    checkpoint_rows = cur.fetchall()
-    checkpoints = [
-        {
-            "projector_name": r["projector_name"],
-            "last_processed_global_sequence": int(r["last_processed_global_sequence"]),
-            "status": r["status"],
-            "last_checkpoint_at": serialize_val(r["last_checkpoint_at"]),
-            "error_detail": r.get("error_detail"),
-        }
-        for r in checkpoint_rows
-    ]
+    checkpoints = []
+    try:
+        cur.execute("SAVEPOINT sp_checkpoints;")
+        cur.execute("""
+            SELECT projector_name, last_processed_global_sequence, status, last_checkpoint_at, error_detail
+            FROM pub_neural.neural_projection_checkpoints
+            ORDER BY projector_name ASC;
+        """)
+        checkpoint_rows = cur.fetchall()
+        checkpoints = [
+            {
+                "projector_name": r["projector_name"],
+                "last_processed_global_sequence": int(r["last_processed_global_sequence"]),
+                "status": r["status"],
+                "last_checkpoint_at": serialize_val(r["last_checkpoint_at"]),
+                "error_detail": r.get("error_detail"),
+            }
+            for r in checkpoint_rows
+        ]
+        cur.execute("RELEASE SAVEPOINT sp_checkpoints;")
+    except Exception:
+        try:
+            cur.execute("ROLLBACK TO SAVEPOINT sp_checkpoints;")
+        except Exception:
+            pass
 
     active_zone: Optional[str] = None
     active_role: Optional[str] = None
 
     if bearer_token:
-        token_hash = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
-        cur.execute("""
-            SELECT actor_role, active_trust_zone, active_project_id
-            FROM pub_neural.active_sessions
-            WHERE session_token_hash = %s
-              AND expires_at > CURRENT_TIMESTAMP;
-        """, (token_hash,))
-        sess = cur.fetchone()
-        if sess:
-            active_role = str(sess["actor_role"])
-            active_zone = str(sess["active_trust_zone"])
+        try:
+            cur.execute("SAVEPOINT sp_session;")
+            token_hash = hashlib.sha256(bearer_token.encode("utf-8")).hexdigest()
+            cur.execute("""
+                SELECT actor_role, active_trust_zone, active_project_id
+                FROM pub_neural.active_sessions
+                WHERE session_token_hash = %s
+                  AND expires_at > CURRENT_TIMESTAMP;
+            """, (token_hash,))
+            sess = cur.fetchone()
+            if sess:
+                active_role = str(sess["actor_role"])
+                active_zone = str(sess["active_trust_zone"])
+            cur.execute("RELEASE SAVEPOINT sp_session;")
+        except Exception:
+            try:
+                cur.execute("ROLLBACK TO SAVEPOINT sp_session;")
+            except Exception:
+                pass
 
     capabilities = {
         "database_engine": "ACTIVE (PostgreSQL 16 + pgvector HNSW)",

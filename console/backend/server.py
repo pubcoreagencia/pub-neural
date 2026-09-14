@@ -248,7 +248,7 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
             # No route matched
             self._send_json(404, {"error": "NotFound", "detail": f"Path '{path}' does not match any console API route."})
 
-        except AuthenticationError as auth_err:
+        except (AuthenticationError, PermissionError) as auth_err:
             self._send_json(401, {"error": "Unauthorized", "detail": str(auth_err)})
         except ReadOnlyViolationError as ro_err:
             self._send_json(403, {"error": "Forbidden", "detail": str(ro_err)})
