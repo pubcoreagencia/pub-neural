@@ -3,13 +3,14 @@
 ## Status
 
 ```text
-STATUS: PHASE_D_EXPERIENCE_WRITEBACK_ESTABLISHED
+STATUS: PHASE_E1_PRE_TASK_KNOWLEDGE_GATE_ACTIVATED
 IMPLEMENTATION STATUS:
   - Phase A (Contracts & Boundaries): IMPLEMENTED (src/gate/models.py, src/gate/enums.py)
   - Phase B (Neural Query Service): IMPLEMENTED (src/gate/service.py, src/gate/retrieval_adapter.py, tests/gate/test_query_service.py)
   - Phase C (PDL Query Adapter): IMPLEMENTED (pubcoreagencia/pub-dev-loop: src/pdl/neural/query-types.ts, src/pdl/neural/query-transport.ts, src/pdl/neural/query-adapter.ts, tests/pdl/neural-query-adapter.test.ts)
   - Phase D (Experience Writeback): IMPLEMENTED (src/gate/experience_service.py, tests/gate/test_experience_service.py, and pubcoreagencia/pub-dev-loop: src/pdl/neural/experience-types.ts, src/pdl/neural/experience-transport.ts, src/pdl/neural/experience-adapter.ts, tests/pdl/neural-experience-adapter.test.ts)
-  - Phase E-F (Validation / Controlled E2E Gate Integration): NOT IMPLEMENTED / TARGET ARCHITECTURE
+  - Phase E1 (Pre-Task Knowledge Gate): IMPLEMENTED (pubcoreagencia/pub-dev-loop: src/pdl/neural/pre-task-gate.ts, src/office/context-assembly.ts, src/router-worker.ts, tests/pdl/pre-task-knowledge-gate.test.ts)
+  - Phase E2 / F (Closed-Loop / Controlled E2E Gate Integration): NOT IMPLEMENTED / TARGET ARCHITECTURE
 CANONICAL TARGET BASELINE: v0.2
 GOVERNANCE CHECKPOINT: 2026-09-14
 ```
@@ -436,7 +437,11 @@ CLASSIFICATION: ROADMAP & STATUS
   - *AINDA NÃO IMPLEMENTADO:* Neural HTTP server, REST API, MCP, real end-to-end network transport, automatic PDL runtime query (ContextAssemblyEngine / worker / scheduler hooks), LLM prompt context formatter, Experience Writeback (Phase D), Bidirectional Gate runtime, autonomous cognitive loop.
 - **Phase D — Experience Writeback:** `EXPERIENCE WRITEBACK IMPLEMENTED` (Experience ingestion contract, internal `NeuralExperienceService` in `src/gate/experience_service.py`, event sourcing and idempotency preservation via `ExperienceSink` / `InMemoryExperienceSink`, 18-scenario unit test suite in `tests/gate/test_experience_service.py`, and in `pubcoreagencia/pub-dev-loop`: canonical contracts in `src/pdl/neural/experience-types.ts`, transport boundary abstraction in `src/pdl/neural/experience-transport.ts`, adapter in `src/pdl/neural/experience-adapter.ts`, and 12-scenario unit test suite in `tests/pdl/neural-experience-adapter.test.ts`).
   - *AINDA NÃO IMPLEMENTADO:* Automatic worker writeback (post-task hook in worker/scheduler), real network E2E transport server, autonomous extraction, automatic promotion (Candidate -> Validated), bidirectional runtime gate, autonomous cognitive loop. Neural possui uma fronteira de ingestão de experiência implementada sem aprendizado automático autônomo.
-- **Phase E — Validation / Tests:** `NOT IMPLEMENTED / TARGET` Executar a matriz completa de testes de integração com mocks determinísticos.
+- **Phase E1 — Pre-Task Knowledge Gate:** `PRE-TASK KNOWLEDGE GATE IMPLEMENTED` (Single deterministic pre-task cognitive read boundary in `pubcoreagencia/pub-dev-loop`: `PreTaskKnowledgeGate` in `src/pdl/neural/pre-task-gate.ts`, factual context mapping from `Task`, canonical knowledge class selection `['DECISION', 'RULE', 'GOVERNANCE', 'PATTERN', 'LESSON', 'SKILL']`, integration with `ContextAssemblyEngine` in `src/office/context-assembly.ts` and `RouterWorker` / `PdlCorrectionWorker`, strict DATA-ONLY boundary with prompt injection neutralization, distinct preservation of all 8 gate semantic statuses, fail-open default policy, full observability and traceability via `requestId` and `PreTaskObservability`, and comprehensive 21-scenario test suite in `tests/pdl/pre-task-knowledge-gate.test.ts`).
+  - *IMPLEMENTED:* Pre-task query integration point; task-context → Neural query mapping; controlled context assembly; semantic status handling (SUCCESS, NO_MATCH, ABSTAIN, CONFLICT, STALE, UNAVAILABLE, INTERNAL_ERROR, INVALID_REQUEST); data-only enforcement; traceability; tests.
+  - *NOT IMPLEMENTED:* Automatic post-task writeback; full bidirectional runtime loop; autonomous cognitive loop; automatic knowledge promotion.
+  - *PRINCIPLE:* `E1 = READ PATH ACTIVATED` | `E1 ≠ FULL BIDIRECTIONAL LOOP`.
+- **Phase E2 — Validation / Tests:** `NOT IMPLEMENTED / TARGET` Executar a matriz completa de testes de integração com mocks determinísticos.
 - **Phase F — Controlled E2E:** `NOT IMPLEMENTED / TARGET` Validação ponta a ponta com repositório piloto em ambiente controlado.
 
 ---
