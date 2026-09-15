@@ -365,6 +365,10 @@ HERMES     = intake / transport / capture
 - `F = CONTROLLED END-TO-END VALIDATED` (Integração E2E validada em ambiente controlado com 20 cenários fundamentais)
 - `PRODUCTION NETWORK INTEGRATION = NOT IMPLEMENTED` (Target architecture / não ativado em produção)
 
+- `RUNTIME HTTP BOUNDARY = IMPLEMENTED AND VALIDATED`
+- `PRODUCTION DEPLOYMENT = NOT YET ESTABLISHED`
+- `PRODUCTION OPERATIONAL ROLLOUT = NOT YET ESTABLISHED`
+
 **Consolidation Date:** 2026-09-14 (Phase F Checkpoint)
 
 **Current Reality Baseline:**
