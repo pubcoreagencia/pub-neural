@@ -36,7 +36,7 @@ class NeuralQueryService:
         self.retrieval_engine = retrieval_engine
         self.mapper = result_mapper or NeuralResultMapper()
 
-    def query(self, request: Union[NeuralQueryRequest, Dict[str, Any]]) -> NeuralQueryResponse:
+    def query(self, request: Union[NeuralQueryRequest, Dict[str, Any]], bearer_token: Optional[str] = None) -> NeuralQueryResponse:
         """
         Execute a knowledge query against the injected retrieval engine.
         Returns a strongly-typed NeuralQueryResponse respecting all gate contracts.
@@ -81,7 +81,7 @@ class NeuralQueryService:
                 project_id=validated_req.project_id,
                 limit=validated_req.limit,
                 knowledge_classes=validated_req.requested_knowledge_classes,
-                filters=validated_req.filters,
+                bearer_token=bearer_token,
             )
         except GateTransportError as e:
             return NeuralQueryResponse(

@@ -51,6 +51,7 @@ class NeuralRetrievalEngine(Protocol):
         query: str,
         trust_zone: Optional[str] = None,
         project_id: Optional[str] = None,
+        bearer_token: Optional[str] = None,
         limit: int = 5,
         knowledge_classes: Optional[List[KnowledgeClass]] = None,
         filters: Optional[Dict[str, Any]] = None,
@@ -213,6 +214,7 @@ class HybridSearchAdapter:
         query: str,
         trust_zone: Optional[str] = None,
         project_id: Optional[str] = None,
+        bearer_token: Optional[str] = None,
         limit: int = 5,
         knowledge_classes: Optional[List[KnowledgeClass]] = None,
         filters: Optional[Dict[str, Any]] = None,
@@ -227,6 +229,7 @@ class HybridSearchAdapter:
                 query=query,
                 trust_zone=trust_zone,
                 project_id=project_id,
+                bearer_token=bearer_token,
             )
             raw_results = batch_data.get("results", [])[:limit]
             decision = batch_data.get("abstention_decision")
