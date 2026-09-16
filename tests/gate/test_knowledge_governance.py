@@ -73,28 +73,40 @@ class TestKnowledgeGovernanceDatabaseIntegration(unittest.TestCase):
         if not cls.db_url:
             raise unittest.SkipTest("PUB_NEURAL_DB_URL not configured in environment or .env")
 
-    def test_real_candidate_nodes_under_review(self):
-        """Verify real candidate nodes exist in database and are correctly returned by review service."""
+    def test_real_candidate_and_adopted_nodes(self):
+        """Verify candidate node 2 is under review and node 1 was adopted by sovereign decision."""
         with psycopg2.connect(self.db_url) as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # 1. Candidate Review Service contains finding:2 (finding:1 was adopted, no longer CANDIDATE)
                 gov_dto = get_governance_review_data(cur)
-                self.assertGreaterEqual(gov_dto.candidates_count, 2)
+                self.assertGreaterEqual(gov_dto.candidates_count, 1)
                 cand_ids = [c.id for c in gov_dto.candidates]
-                self.assertIn("finding:pub-neural:task-runtime-remote-db-integration:1", cand_ids)
                 self.assertIn("finding:pub-neural:task-runtime-remote-db-integration:2", cand_ids)
+                self.assertNotIn("finding:pub-neural:task-runtime-remote-db-integration:1", cand_ids)
 
-                for c in gov_dto.candidates:
-                    self.assertEqual(c.promotion_state, "CANDIDATE")
-                    self.assertEqual(c.conflict_state, "RESOLVED")
-                    self.assertEqual(c.proposed_by_actor_role, "AGENT")
-                    self.assertIsNotNone(c.derived_from_experience_id)
+                cand2 = next(c for c in gov_dto.candidates if c.id == "finding:pub-neural:task-runtime-remote-db-integration:2")
+                self.assertEqual(cand2.promotion_state, "CANDIDATE")
+                self.assertEqual(cand2.conflict_state, "RESOLVED")
+                self.assertEqual(cand2.proposed_by_actor_role, "AGENT")
+                self.assertIsNotNone(cand2.derived_from_experience_id)
+
+                # 2. Verify finding:1 state in database (ADOPTED with sovereign provenance)
+                cur.execute("""
+                    SELECT id, promotion_state, conflict_state, promotion_reason, last_transition_event_id
+                    FROM pub_neural.neural_nodes
+                    WHERE id = 'finding:pub-neural:task-runtime-remote-db-integration:1';
+                """)
+                f1 = cur.fetchone()
+                self.assertEqual(f1["promotion_state"], "ADOPTED")
+                self.assertEqual(f1["conflict_state"], "RESOLVED")
+                self.assertIn("Adopted by actor:ceo:matheus (CEO)", f1["promotion_reason"])
 
     def test_negative_agent_cannot_validate_knowledge(self):
         """Negative Test A: reduce_event must REJECT KNOWLEDGE_VALIDATED if actor_role is AGENT."""
         with psycopg2.connect(self.db_url) as conn:
             with conn.cursor() as cur:
                 cur.execute("SAVEPOINT sp_neg_val;")
-                # Test reduce_event directly with AGENT role mock event
+                # Test reduce_event directly with AGENT role mock event on finding 2 (CANDIDATE)
                 cur.execute("""
                     SELECT pub_neural.reduce_event((
                         '00000000-0000-0000-0000-000000000001'::uuid,
@@ -103,7 +115,7 @@ class TestKnowledgeGovernanceDatabaseIntegration(unittest.TestCase):
                         1, 1, 'test', 'stream-1', 1,
                         'agent-1',
                         'AGENT'::pub_neural.neural_actor_role,
-                        '{"target_id": "finding:pub-neural:task-runtime-remote-db-integration:1", "evidence_id": "00000000-0000-0000-0000-000000000002"}'::jsonb,
+                        '{"target_id": "finding:pub-neural:task-runtime-remote-db-integration:2", "evidence_summary": "attempt"}'::jsonb,
                         'sig',
                         NOW()
                     )::pub_neural.neural_events);
@@ -114,7 +126,7 @@ class TestKnowledgeGovernanceDatabaseIntegration(unittest.TestCase):
                 # Verify target node remains strictly CANDIDATE
                 cur.execute("""
                     SELECT promotion_state FROM pub_neural.neural_nodes 
-                    WHERE id = 'finding:pub-neural:task-runtime-remote-db-integration:1';
+                    WHERE id = 'finding:pub-neural:task-runtime-remote-db-integration:2';
                 """)
                 state = cur.fetchone()[0]
                 self.assertEqual(state, "CANDIDATE")
@@ -133,7 +145,7 @@ class TestKnowledgeGovernanceDatabaseIntegration(unittest.TestCase):
                         1, 1, 'test', 'stream-1', 1,
                         'agent-1',
                         'AGENT'::pub_neural.neural_actor_role,
-                        '{"target_id": "finding:pub-neural:task-runtime-remote-db-integration:1"}'::jsonb,
+                        '{"target_id": "finding:pub-neural:task-runtime-remote-db-integration:2"}'::jsonb,
                         'sig',
                         NOW()
                     )::pub_neural.neural_events);
@@ -221,6 +233,36 @@ class TestKnowledgeGovernanceDatabaseIntegration(unittest.TestCase):
                 self.assertEqual(cur.fetchone()[0], "CANDIDATE")
                 cur.execute("ROLLBACK TO SAVEPOINT sp_neg_conflict;")
 
+    def test_negative_direct_jump_candidate_to_adopted_rejected(self):
+        """Negative Test E: Direct jump from CANDIDATE to ADOPTED without prior VALIDATED is strictly REJECTED."""
+        with psycopg2.connect(self.db_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SAVEPOINT sp_neg_direct_adopt;")
+                # finding:pub-neural:task-runtime-remote-db-integration:2 is CANDIDATE
+                cur.execute("""
+                    SELECT pub_neural.reduce_event((
+                        '00000000-0000-0000-0000-000000000001'::uuid,
+                        9999,
+                        'KNOWLEDGE_ADOPTED',
+                        1, 1, 'test', 'stream-1', 1,
+                        'pub_neural_ceo',
+                        'CEO'::pub_neural.neural_actor_role,
+                        '{"target_id": "finding:pub-neural:task-runtime-remote-db-integration:2"}'::jsonb,
+                        'sig',
+                        NOW()
+                    )::pub_neural.neural_events);
+                """)
+                res = cur.fetchone()[0]
+                self.assertEqual(res, "REJECTED")
+
+                # Verify finding:2 remains strictly CANDIDATE
+                cur.execute("""
+                    SELECT promotion_state FROM pub_neural.neural_nodes
+                    WHERE id = 'finding:pub-neural:task-runtime-remote-db-integration:2';
+                """)
+                self.assertEqual(cur.fetchone()[0], "CANDIDATE")
+                cur.execute("ROLLBACK TO SAVEPOINT sp_neg_direct_adopt;")
+
     def test_negative_malformed_target_rejected(self):
         """Negative Test F: Missing target_id is MALFORMED; Non-existent target is REJECTED."""
         with psycopg2.connect(self.db_url) as conn:
@@ -258,6 +300,34 @@ class TestKnowledgeGovernanceDatabaseIntegration(unittest.TestCase):
                 """)
                 self.assertEqual(cur.fetchone()[0], "REJECTED")
                 cur.execute("ROLLBACK TO SAVEPOINT sp_neg_malformed;")
+
+    def test_governance_replay_idempotency(self):
+        """Verify re-running projector is idempotent (0 processed, checkpoint intact, HEALTHY) and reducing seq 7 is supported."""
+        with psycopg2.connect(self.db_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SAVEPOINT sp_replay_idempotency;")
+                # Re-running projector at current checkpoint: must report 0 processed, 0 failed, checkpoint = 7, HEALTHY
+                cur.execute("SELECT * FROM pub_neural.run_projector('graph_projector');")
+                proj_res = cur.fetchone()
+                self.assertEqual(proj_res[0], 0)  # events_processed
+                self.assertEqual(proj_res[1], 0)  # events_failed
+                self.assertEqual(proj_res[2], 7)  # checkpoint
+                self.assertEqual(proj_res[3], "HEALTHY")
+
+                # Re-reducing sequence 7 (KNOWLEDGE_ADOPTED on already ADOPTED node) is idempotent SUPPORTED
+                cur.execute("""
+                    SELECT pub_neural.reduce_event(e)
+                    FROM pub_neural.neural_events e
+                    WHERE e.global_sequence = 7;
+                """)
+                res = cur.fetchone()[0]
+                self.assertEqual(res, "SUPPORTED")
+
+                # Verify finding 1 still has exactly 1 row and correct state
+                cur.execute("SELECT COUNT(*) FROM pub_neural.neural_nodes WHERE id = 'finding:pub-neural:task-runtime-remote-db-integration:1';")
+                self.assertEqual(cur.fetchone()[0], 1)
+
+                cur.execute("ROLLBACK TO SAVEPOINT sp_replay_idempotency;")
 
 
 if __name__ == "__main__":
