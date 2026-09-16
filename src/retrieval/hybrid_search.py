@@ -23,6 +23,13 @@ class HybridSearchResult:
     content_hash: str
     evidence_id: Optional[str] = None
     source_id: Optional[str] = None
+    promotion_state: Optional[str] = None
+    conflict_state: Optional[str] = None
+    last_transition_event_id: Optional[str] = None
+    valid_from: Optional[str] = None
+    valid_until: Optional[str] = None
+    recorded_from: Optional[str] = None
+    recorded_until: Optional[str] = None
 
 
 class HybridSearchEngine:
@@ -215,6 +222,13 @@ class HybridSearchEngine:
                 n.originating_event_id::text,
                 n.content,
                 n.title AS node_title,
+                n.promotion_state::text AS promotion_state,
+                n.conflict_state::text AS conflict_state,
+                n.last_transition_event_id::text AS last_transition_event_id,
+                n.valid_from::text AS valid_from,
+                n.valid_until::text AS valid_until,
+                n.recorded_from::text AS recorded_from,
+                n.recorded_until::text AS recorded_until,
                 ts_rank(fts.tsv_document, plainto_tsquery('portuguese', %s)) AS lexical_score
             FROM pub_neural.neural_fts fts
             JOIN pub_neural.neural_nodes n ON fts.id = n.id
@@ -250,7 +264,14 @@ class HybridSearchEngine:
                 "lexical_score": float(row["lexical_score"]),
                 "evidence_id": None,
                 "source_id": None,
-                "content_hash": ""
+                "content_hash": "",
+                "promotion_state": row.get("promotion_state"),
+                "conflict_state": row.get("conflict_state"),
+                "last_transition_event_id": row.get("last_transition_event_id"),
+                "valid_from": row.get("valid_from"),
+                "valid_until": row.get("valid_until"),
+                "recorded_from": row.get("recorded_from"),
+                "recorded_until": row.get("recorded_until"),
             })
         return results
 
@@ -278,6 +299,13 @@ class HybridSearchEngine:
                 n.title AS node_title,
                 n.summary AS node_summary,
                 n.content AS node_content,
+                n.promotion_state::text AS node_promotion_state,
+                n.conflict_state::text AS node_conflict_state,
+                n.last_transition_event_id::text AS node_last_transition_event_id,
+                n.valid_from::text AS node_valid_from,
+                n.valid_until::text AS node_valid_until,
+                n.recorded_from::text AS node_recorded_from,
+                n.recorded_until::text AS node_recorded_until,
                 e.exact_quote AS evidence_quote,
                 e.source_id::text AS evidence_source_id
             FROM pub_neural.neural_vectors v
@@ -310,6 +338,14 @@ class HybridSearchEngine:
         rank_idx = 1
         for row in rows:
             # Check staleness: verify content_hash against live text
+            promotion_state = None
+            conflict_state = None
+            last_transition_event_id = None
+            valid_from = None
+            valid_until = None
+            recorded_from = None
+            recorded_until = None
+
             if row["target_type"] == "NODE":
                 text = f"{row['node_title']}\n{row['node_summary'] or ''}\n{row['node_content'] or ''}".strip()
                 expected_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -320,6 +356,13 @@ class HybridSearchEngine:
                 snippet = (row["node_summary"] or row["node_content"] or "")[:300]
                 ev_id = None
                 src_id = None
+                promotion_state = row.get("node_promotion_state")
+                conflict_state = row.get("node_conflict_state")
+                last_transition_event_id = row.get("node_last_transition_event_id")
+                valid_from = row.get("node_valid_from")
+                valid_until = row.get("node_valid_until")
+                recorded_from = row.get("node_recorded_from")
+                recorded_until = row.get("node_recorded_until")
             elif row["target_type"] == "EVIDENCE":
                 text = (row["evidence_quote"] or "").strip()
                 # If exact quote hash matches or simple verification
@@ -345,7 +388,14 @@ class HybridSearchEngine:
                 "dense_rank": rank_idx,
                 "cosine_distance": float(row["cosine_distance"]),
                 "evidence_id": ev_id,
-                "source_id": src_id
+                "source_id": src_id,
+                "promotion_state": promotion_state,
+                "conflict_state": conflict_state,
+                "last_transition_event_id": last_transition_event_id,
+                "valid_from": valid_from,
+                "valid_until": valid_until,
+                "recorded_from": recorded_from,
+                "recorded_until": recorded_until,
             })
             rank_idx += 1
 
@@ -381,7 +431,14 @@ class HybridSearchEngine:
                 "originating_event_id": item["originating_event_id"],
                 "content_hash": item["content_hash"],
                 "evidence_id": item["evidence_id"],
-                "source_id": item["source_id"]
+                "source_id": item["source_id"],
+                "promotion_state": item.get("promotion_state"),
+                "conflict_state": item.get("conflict_state"),
+                "last_transition_event_id": item.get("last_transition_event_id"),
+                "valid_from": item.get("valid_from"),
+                "valid_until": item.get("valid_until"),
+                "recorded_from": item.get("recorded_from"),
+                "recorded_until": item.get("recorded_until"),
             }
 
         # Process dense results
@@ -394,6 +451,18 @@ class HybridSearchEngine:
                 # Enrich content_hash if missing
                 if not fused_map[key]["content_hash"]:
                     fused_map[key]["content_hash"] = item["content_hash"]
+                # Enrich epistemic metadata if missing
+                for meta_key in (
+                    "promotion_state",
+                    "conflict_state",
+                    "last_transition_event_id",
+                    "valid_from",
+                    "valid_until",
+                    "recorded_from",
+                    "recorded_until",
+                ):
+                    if not fused_map[key].get(meta_key) and item.get(meta_key):
+                        fused_map[key][meta_key] = item[meta_key]
             else:
                 fused_map[key] = {
                     "target_id": item["target_id"],
@@ -408,7 +477,14 @@ class HybridSearchEngine:
                     "originating_event_id": item["originating_event_id"],
                     "content_hash": item["content_hash"],
                     "evidence_id": item["evidence_id"],
-                    "source_id": item["source_id"]
+                    "source_id": item["source_id"],
+                    "promotion_state": item.get("promotion_state"),
+                    "conflict_state": item.get("conflict_state"),
+                    "last_transition_event_id": item.get("last_transition_event_id"),
+                    "valid_from": item.get("valid_from"),
+                    "valid_until": item.get("valid_until"),
+                    "recorded_from": item.get("recorded_from"),
+                    "recorded_until": item.get("recorded_until"),
                 }
 
         # Deterministic sort: rrf_score DESC, then target_id ASC
@@ -431,7 +507,14 @@ class HybridSearchEngine:
                 originating_event_id=item["originating_event_id"],
                 content_hash=item["content_hash"],
                 evidence_id=item["evidence_id"],
-                source_id=item["source_id"]
+                source_id=item["source_id"],
+                promotion_state=item.get("promotion_state"),
+                conflict_state=item.get("conflict_state"),
+                last_transition_event_id=item.get("last_transition_event_id"),
+                valid_from=item.get("valid_from"),
+                valid_until=item.get("valid_until"),
+                recorded_from=item.get("recorded_from"),
+                recorded_until=item.get("recorded_until"),
             )
             for item in sorted_items
         ]

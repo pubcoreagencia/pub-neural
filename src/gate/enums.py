@@ -151,6 +151,7 @@ class ConflictState(str, Enum):
     SUPERSEDED = "SUPERSEDED"
     DEPRECATED = "DEPRECATED"
     REJECTED = "REJECTED"
+    UNKNOWN = "UNKNOWN"
 
     @classmethod
     def from_str(cls, value: Any) -> "ConflictState":
@@ -180,6 +181,7 @@ class PromotionState(str, Enum):
     ADOPTED = "ADOPTED"
     INSTITUTIONAL_CANDIDATE = "INSTITUTIONAL_CANDIDATE"
     INSTITUTIONAL = "INSTITUTIONAL"
+    UNKNOWN = "UNKNOWN"
 
     @classmethod
     def from_str(cls, value: Any) -> "PromotionState":

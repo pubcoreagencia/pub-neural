@@ -70,6 +70,9 @@ class ProvenanceMetadata:
     captured_at: Optional[str] = None
     observed_at: Optional[str] = None
     storage_uri: Optional[str] = None
+    last_transition_event_id: Optional[str] = None
+    recorded_from: Optional[str] = None
+    recorded_until: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.start_line is not None and self.start_line < 1:
@@ -106,6 +109,9 @@ class ProvenanceMetadata:
             "captured_at": self.captured_at,
             "observed_at": self.observed_at,
             "storage_uri": self.storage_uri,
+            "last_transition_event_id": self.last_transition_event_id,
+            "recorded_from": self.recorded_from,
+            "recorded_until": self.recorded_until,
         }
 
     @classmethod
@@ -126,6 +132,9 @@ class ProvenanceMetadata:
             captured_at=data.get("captured_at"),
             observed_at=data.get("observed_at"),
             storage_uri=data.get("storage_uri"),
+            last_transition_event_id=data.get("last_transition_event_id"),
+            recorded_from=data.get("recorded_from"),
+            recorded_until=data.get("recorded_until"),
         )
 
 
@@ -307,8 +316,8 @@ class NeuralKnowledgeItem:
     project_id: Optional[str] = None
     relevance_score: float = 0.0
     confidence_score: float = 1.0
-    promotion_state: PromotionState = PromotionState.VALIDATED
-    conflict_state: ConflictState = ConflictState.RESOLVED
+    promotion_state: Optional[PromotionState] = None
+    conflict_state: Optional[ConflictState] = None
     authority: AuthorityMetadata = field(default_factory=lambda: AuthorityMetadata(level=AuthorityLevel.VALIDATED_KNOWLEDGE))
     provenance: ProvenanceMetadata = field(default_factory=ProvenanceMetadata)
     freshness: FreshnessMetadata = field(default_factory=lambda: FreshnessMetadata(state=FreshnessState.VALID, is_stale=False))
@@ -319,8 +328,10 @@ class NeuralKnowledgeItem:
         self.content = _validate_non_empty_str(self.content, "content")
 
         self.knowledge_class = KnowledgeClass.from_str(self.knowledge_class)
-        self.promotion_state = PromotionState.from_str(self.promotion_state)
-        self.conflict_state = ConflictState.from_str(self.conflict_state)
+        if self.promotion_state is not None:
+            self.promotion_state = PromotionState.from_str(self.promotion_state)
+        if self.conflict_state is not None:
+            self.conflict_state = ConflictState.from_str(self.conflict_state)
 
         norm_scope = str(self.scope).strip().upper()
         if norm_scope not in ("GLOBAL", "PROJECT"):
@@ -344,8 +355,8 @@ class NeuralKnowledgeItem:
             "project_id": self.project_id,
             "relevance_score": self.relevance_score,
             "confidence_score": self.confidence_score,
-            "promotion_state": self.promotion_state.value,
-            "conflict_state": self.conflict_state.value,
+            "promotion_state": self.promotion_state.value if self.promotion_state else None,
+            "conflict_state": self.conflict_state.value if self.conflict_state else None,
             "authority": self.authority.to_dict(),
             "provenance": self.provenance.to_dict(),
             "freshness": self.freshness.to_dict(),
@@ -355,6 +366,13 @@ class NeuralKnowledgeItem:
     def from_dict(cls, data: Dict[str, Any]) -> "NeuralKnowledgeItem":
         if not isinstance(data, dict):
             raise GateValidationError("Knowledge item must be a dictionary", field="results")
+
+        raw_prom = data.get("promotion_state")
+        prom_val = PromotionState.from_str(raw_prom) if raw_prom is not None else None
+
+        raw_conf = data.get("conflict_state")
+        conf_val = ConflictState.from_str(raw_conf) if raw_conf is not None else None
+
         return cls(
             id=data.get("id", ""),
             knowledge_class=KnowledgeClass.from_str(data.get("knowledge_class", "")),
@@ -364,8 +382,8 @@ class NeuralKnowledgeItem:
             project_id=data.get("project_id"),
             relevance_score=float(data.get("relevance_score", 0.0)),
             confidence_score=float(data.get("confidence_score", 1.0)),
-            promotion_state=PromotionState.from_str(data.get("promotion_state", PromotionState.VALIDATED.value)),
-            conflict_state=ConflictState.from_str(data.get("conflict_state", ConflictState.RESOLVED.value)),
+            promotion_state=prom_val,
+            conflict_state=conf_val,
             authority=AuthorityMetadata.from_dict(data.get("authority", {})),
             provenance=ProvenanceMetadata.from_dict(data.get("provenance", {})),
             freshness=FreshnessMetadata.from_dict(data.get("freshness", {})),
@@ -767,6 +785,7 @@ class NeuralExperienceRecord:
     agent_id: Optional[str] = None
     changed_files: List[str] = field(default_factory=list)
     candidate_findings: List[CandidateFinding] = field(default_factory=list)
+    consumed_knowledge_ids: List[str] = field(default_factory=list)
     trace: Optional[Dict[str, Any]] = None
     ingestion_source: str = "pdl-bidirectional-gate"
     execution_id: Optional[str] = None
@@ -793,6 +812,10 @@ class NeuralExperienceRecord:
         if not isinstance(self.changed_files, (list, tuple)):
             raise GateValidationError("changed_files must be a list of strings", field="changed_files")
 
+        if not isinstance(self.consumed_knowledge_ids, (list, tuple)):
+            raise GateValidationError("consumed_knowledge_ids must be a list of strings", field="consumed_knowledge_ids")
+        self.consumed_knowledge_ids = [str(k).strip() for k in self.consumed_knowledge_ids if str(k).strip()]
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "taskId": self.task_id,
@@ -818,6 +841,8 @@ class NeuralExperienceRecord:
             "evidence": self.evidence.to_dict(),
             "candidateFindings": [f.to_dict() for f in self.candidate_findings],
             "candidate_findings": [f.to_dict() for f in self.candidate_findings],
+            "consumedKnowledgeIds": list(self.consumed_knowledge_ids),
+            "consumed_knowledge_ids": list(self.consumed_knowledge_ids),
             "trace": self.trace,
             "completedAt": self.completed_at,
             "completed_at": self.completed_at,
@@ -837,6 +862,10 @@ class NeuralExperienceRecord:
         findings_raw = data.get("candidateFindings", data.get("candidate_findings", []))
         findings = [CandidateFinding.from_dict(f) for f in findings_raw]
 
+        consumed_raw = data.get("consumedKnowledgeIds", data.get("consumed_knowledge_ids", []))
+        if not isinstance(consumed_raw, (list, tuple)):
+            consumed_raw = []
+
         return cls(
             task_id=data.get("taskId", data.get("task_id", "")),
             project_id=data.get("projectId", data.get("project_id", "")),
@@ -850,6 +879,7 @@ class NeuralExperienceRecord:
             changed_files=data.get("changedFiles", data.get("changed_files", [])),
             evidence=TaskEvidence.from_dict(evidence_raw),
             candidate_findings=findings,
+            consumed_knowledge_ids=list(consumed_raw),
             trace=data.get("trace"),
             completed_at=data.get("completedAt", data.get("completed_at", "")),
             ingestion_source=data.get("ingestionSource", data.get("ingestion_source", "pdl-bidirectional-gate")),

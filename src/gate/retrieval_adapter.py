@@ -159,6 +159,9 @@ class NeuralResultMapper:
             captured_at=self._extract_attr(raw, "captured_at"),
             observed_at=self._extract_attr(raw, "observed_at"),
             storage_uri=self._extract_attr(raw, "storage_uri"),
+            last_transition_event_id=self._extract_attr(raw, "last_transition_event_id"),
+            recorded_from=self._extract_attr(raw, "recorded_from"),
+            recorded_until=self._extract_attr(raw, "recorded_until"),
         )
 
         # Authority: strictly data_only
@@ -177,11 +180,13 @@ class NeuralResultMapper:
             is_stale=is_stale,
             checked_at=self._extract_attr(raw, "checked_at"),
             diverged_commit_sha=self._extract_attr(raw, "diverged_commit_sha"),
+            valid_from=self._extract_attr(raw, "valid_from"),
+            valid_until=self._extract_attr(raw, "valid_until"),
             reason=self._extract_attr(raw, "freshness_reason"),
         )
 
-        raw_conflict = self._extract_attr(raw, "conflict_state", ConflictState.RESOLVED)
-        raw_promotion = self._extract_attr(raw, "promotion_state", PromotionState.VALIDATED)
+        raw_conflict = self._extract_attr(raw, "conflict_state")
+        raw_promotion = self._extract_attr(raw, "promotion_state")
 
         return NeuralKnowledgeItem(
             id=target_id,
@@ -192,8 +197,8 @@ class NeuralResultMapper:
             project_id=project_id,
             relevance_score=relevance,
             confidence_score=confidence,
-            promotion_state=PromotionState.from_str(raw_promotion),
-            conflict_state=ConflictState.from_str(raw_conflict),
+            promotion_state=PromotionState.from_str(raw_promotion) if raw_promotion is not None else None,
+            conflict_state=ConflictState.from_str(raw_conflict) if raw_conflict is not None else None,
             authority=auth,
             provenance=prov,
             freshness=fresh,
