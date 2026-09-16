@@ -139,5 +139,32 @@ class TestConsoleAPI(unittest.TestCase):
             )
 
 
+    def test_port_and_host_env_vars(self):
+        import os
+        old_port = os.environ.get("PORT")
+        old_host = os.environ.get("CONSOLE_HOST")
+        try:
+            os.environ["PORT"] = "9090"
+            if "CONSOLE_HOST" in os.environ:
+                del os.environ["CONSOLE_HOST"]
+            cfg = ConsoleConfig.from_environment()
+            self.assertEqual(cfg.port, 9090)
+            self.assertEqual(cfg.host, "0.0.0.0")
+
+            os.environ["CONSOLE_HOST"] = "10.0.0.1"
+            cfg2 = ConsoleConfig.from_environment()
+            self.assertEqual(cfg2.port, 9090)
+            self.assertEqual(cfg2.host, "10.0.0.1")
+        finally:
+            if old_port is not None:
+                os.environ["PORT"] = old_port
+            else:
+                os.environ.pop("PORT", None)
+            if old_host is not None:
+                os.environ["CONSOLE_HOST"] = old_host
+            else:
+                os.environ.pop("CONSOLE_HOST", None)
+
+
 if __name__ == "__main__":
     unittest.main()

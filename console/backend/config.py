@@ -60,8 +60,8 @@ class ConsoleConfig:
             if "sslmode=" not in db_url:
                 db_url = f"{db_url}{separator}sslmode=require"
 
-        host = os.getenv("CONSOLE_HOST", "127.0.0.1")
-        port = int(os.getenv("CONSOLE_PORT", "8080"))
+        host = os.getenv("CONSOLE_HOST", "0.0.0.0" if os.getenv("PORT") else "127.0.0.1")
+        port = int(os.getenv("PORT") or os.getenv("CONSOLE_PORT", "8080"))
         max_hop_depth = int(os.getenv("CONSOLE_MAX_HOP_DEPTH", "2"))
         max_neighborhood_nodes = int(os.getenv("CONSOLE_MAX_NEIGHBORHOOD_NODES", "150"))
         default_search_limit = int(os.getenv("CONSOLE_DEFAULT_SEARCH_LIMIT", "10"))
