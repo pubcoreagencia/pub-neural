@@ -34,6 +34,45 @@ BEGIN
 END;
 $$;
 
+-- ----------------------------------------------------------------------------
+-- PROJECTION: REPOSITORY OBSERVATIONS (V0.2)
+-- Preserves external repository observations without cognitive elevation
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS pub_neural.neural_repository_observations (
+    observation_id UUID PRIMARY KEY,
+    event_id UUID NOT NULL REFERENCES pub_neural.neural_events(id) ON DELETE RESTRICT,
+    repository VARCHAR(128) NOT NULL,
+    source VARCHAR(32) NOT NULL DEFAULT 'github',
+    source_event_id VARCHAR(64),
+    event_type VARCHAR(64),
+    project_id VARCHAR(64) NOT NULL,
+    trust_zone VARCHAR(64) NOT NULL DEFAULT 'tz_internal_holding',
+    external_actor VARCHAR(128),
+    internal_actor VARCHAR(128) NOT NULL,
+    observed_at TIMESTAMPTZ NOT NULL,
+    delivery_id VARCHAR(128) NOT NULL,
+    received_at TIMESTAMPTZ NOT NULL,
+    payload_hash VARCHAR(64) NOT NULL,
+    ref TEXT,
+    sha VARCHAR(64),
+    details JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_repo_obs_delivery UNIQUE (delivery_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_repo_obs_repo_time ON pub_neural.neural_repository_observations (repository, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_repo_obs_project_zone ON pub_neural.neural_repository_observations (project_id, trust_zone);
+CREATE INDEX IF NOT EXISTS idx_repo_obs_sha ON pub_neural.neural_repository_observations (sha) WHERE sha IS NOT NULL;
+
+ALTER TABLE pub_neural.neural_repository_observations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pub_neural.neural_repository_observations FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS rls_neural_repo_obs ON pub_neural.neural_repository_observations;
+CREATE POLICY rls_neural_repo_obs ON pub_neural.neural_repository_observations
+FOR SELECT USING (pub_neural.verify_actor_access(trust_zone, project_id));
+
+GRANT SELECT ON pub_neural.neural_repository_observations TO pub_neural_app, pub_neural_ceo;
+GRANT ALL ON pub_neural.neural_repository_observations TO pub_neural_projector;
+
 CREATE OR REPLACE FUNCTION pub_neural.reduce_event(
     p_event_id UUID
 ) RETURNS VARCHAR(32)
@@ -703,6 +742,64 @@ BEGIN
         RETURN 'SUPPORTED';
 
     -- ------------------------------------------------------------------------
+    -- 13. REPOSITORY_OBSERVED -> neural_repository_observations (V0.2)
+    -- Preserves external observation and provenance without cognitive promotion
+    -- ------------------------------------------------------------------------
+    ELSIF p_event.event_type = 'REPOSITORY_OBSERVED' THEN
+        IF p_event.payload->>'repository' IS NULL
+           OR p_event.payload->>'project_id' IS NULL
+           OR p_event.payload->'provenance'->>'delivery_id' IS NULL
+           OR p_event.payload->'provenance'->>'payload_hash' IS NULL THEN
+            RETURN 'MALFORMED';
+        END IF;
+
+        INSERT INTO pub_neural.neural_repository_observations (
+            observation_id,
+            event_id,
+            repository,
+            source,
+            source_event_id,
+            event_type,
+            project_id,
+            trust_zone,
+            external_actor,
+            internal_actor,
+            observed_at,
+            delivery_id,
+            received_at,
+            payload_hash,
+            ref,
+            sha,
+            details,
+            created_at
+        ) VALUES (
+            COALESCE((p_event.payload->>'observation_id')::uuid, pub_neural.uuid_generate_v5(v_ns, 'obs:' || (p_event.payload->'provenance'->>'delivery_id'))),
+            p_event.id,
+            p_event.payload->>'repository',
+            COALESCE(p_event.payload->>'source', 'github'),
+            p_event.payload->>'source_event_id',
+            p_event.payload->>'event_type',
+            p_event.payload->>'project_id',
+            COALESCE(p_event.payload->>'trust_zone', 'tz_internal_holding'),
+            p_event.payload->>'external_actor',
+            COALESCE(p_event.payload->>'internal_actor', p_event.actor_id),
+            COALESCE((p_event.payload->>'observed_at')::timestamptz, p_event.recorded_at),
+            p_event.payload->'provenance'->>'delivery_id',
+            COALESCE((p_event.payload->'provenance'->>'received_at')::timestamptz, p_event.recorded_at),
+            p_event.payload->'provenance'->>'payload_hash',
+            p_event.payload->'payload'->>'ref',
+            p_event.payload->'payload'->>'sha',
+            COALESCE(p_event.payload->'payload'->'details', '{}'::jsonb),
+            p_event.recorded_at
+        )
+        ON CONFLICT (delivery_id) DO UPDATE SET
+            event_id = EXCLUDED.event_id,
+            payload_hash = EXCLUDED.payload_hash,
+            details = EXCLUDED.details;
+
+        RETURN 'SUPPORTED';
+
+    -- ------------------------------------------------------------------------
     -- Passthrough supported canonical events (manifest/bootstrap/governance)
     -- ------------------------------------------------------------------------
     ELSIF p_event.event_type IN (
@@ -896,6 +993,7 @@ BEGIN
     TRUNCATE TABLE pub_neural.neural_fts CASCADE;
     TRUNCATE TABLE pub_neural.neural_nodes CASCADE;
     TRUNCATE TABLE pub_neural.neural_sources CASCADE;
+    TRUNCATE TABLE pub_neural.neural_repository_observations CASCADE;
 
     -- Reset projector checkpoint
     DELETE FROM pub_neural.neural_projection_checkpoints WHERE projector_name = p_projector_name;

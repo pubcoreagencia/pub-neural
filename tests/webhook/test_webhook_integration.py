@@ -320,3 +320,185 @@ def test_unauthorized_internal_actor(postgres_container):
     conn.close()
     assert count == 0
     assert idemp is None
+
+
+# =============================================================================
+# V0.2 TESTS: REPOSITORY OBSERVATION REDUCER & SOURCE LINKAGE
+# =============================================================================
+
+def test_repository_observed_reduction_and_durable_projection(client, postgres_container):
+    """
+    V0.2-01: Proves:
+      1. Webhook persists REPOSITORY_OBSERVED canonical event.
+      2. reduce_event(event_id) returns 'SUPPORTED'.
+      3. pub_neural.neural_repository_observations stores durable projection.
+      4. Preserves: repository, project_id, trust_zone, observation_id, delivery_id, payload_hash, observed_at.
+      5. NO neural_nodes are created (observation != knowledge).
+      6. NO promotion events (KNOWLEDGE_CANDIDATE_CREATED, etc.) are emitted.
+    """
+    payload = get_payload()
+    payload["repository"]["full_name"] = "pubcore/pub-ecom"
+    payload["head_commit"] = {
+        "id": "11223344556677889900aabbccddeeff00112233",
+        "message": "feat: test durable observation linkage",
+        "author": {"name": "Test Engineer"}
+    }
+    delivery_id = str(uuid.uuid4())
+    resp = send_webhook(client, payload, delivery_id)
+    assert resp.status_code == 202
+
+    conn = psycopg2.connect(postgres_container)
+    cur = conn.cursor()
+
+    # Retrieve event ID
+    cur.execute(
+        "SELECT resulting_event_id FROM pub_neural.neural_idempotency_records WHERE idempotency_key = %s",
+        (f"github_observation:{delivery_id}",)
+    )
+    event_id = cur.fetchone()[0]
+
+    # Count neural_nodes before reduction
+    cur.execute("SELECT COUNT(*) FROM pub_neural.neural_nodes;")
+    nodes_count_before = cur.fetchone()[0]
+
+    # 1. Reduction test
+    cur.execute("SELECT pub_neural.reduce_event(%s::uuid);", (str(event_id),))
+    reduction_result = cur.fetchone()[0]
+    assert reduction_result == "SUPPORTED", f"Expected SUPPORTED, got {reduction_result}"
+    conn.commit()
+
+    # 2. Durable projection verification
+    cur.execute(
+        """
+        SELECT observation_id, event_id, repository, source, project_id, trust_zone,
+               delivery_id, payload_hash, observed_at, ref, sha, details
+        FROM pub_neural.neural_repository_observations
+        WHERE delivery_id = %s;
+        """,
+        (delivery_id,)
+    )
+    obs = cur.fetchone()
+    assert obs is not None, "Observation projection missing in neural_repository_observations"
+
+    obs_id, obs_ev_id, repo, source, proj_id, zone, d_id, p_hash, obs_at, ref, sha, details = obs
+    assert str(obs_ev_id) == str(event_id)
+    assert repo == "pubcore/pub-ecom"
+    assert source == "github"
+    assert proj_id == "pub-ecom"
+    assert zone == "tz_internal_holding"
+    assert d_id == delivery_id
+    assert p_hash is not None and len(p_hash) == 64
+    assert obs_at is not None
+    assert ref == payload["ref"]
+    assert sha == payload["after"]
+    assert details.get("commit_message") == "feat: test durable observation linkage"
+
+    # 3. Invariant check: NO knowledge node created
+    cur.execute("SELECT COUNT(*) FROM pub_neural.neural_nodes;")
+    nodes_count_after = cur.fetchone()[0]
+    assert nodes_count_after == nodes_count_before, "Observation created unauthorized neural_nodes!"
+
+    # 4. Invariant check: NO promotion events created
+    cur.execute(
+        """
+        SELECT COUNT(*) FROM pub_neural.neural_events
+        WHERE event_type IN (
+            'KNOWLEDGE_CANDIDATE_CREATED',
+            'KNOWLEDGE_VALIDATED',
+            'PROMOTION_PROPOSED',
+            'DECISION_RATIFIED',
+            'GOVERNANCE_RULE_RATIFIED'
+        );
+        """
+    )
+    promotion_events_count = cur.fetchone()[0]
+    assert promotion_events_count == 0, "Observation triggered unauthorized promotion events!"
+
+    conn.close()
+
+
+def test_repository_observed_replay_idempotency(client, postgres_container):
+    """
+    V0.2-02: Proves:
+      1. Reducing the exact same REPOSITORY_OBSERVED event twice returns 'SUPPORTED'.
+      2. No duplicate row created in neural_repository_observations (unique on delivery_id).
+    """
+    payload = get_payload()
+    payload["repository"]["full_name"] = "pubcore/pub-neural"
+    delivery_id = str(uuid.uuid4())
+    resp = send_webhook(client, payload, delivery_id)
+    assert resp.status_code == 202
+
+    conn = psycopg2.connect(postgres_container)
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT resulting_event_id FROM pub_neural.neural_idempotency_records WHERE idempotency_key = %s",
+        (f"github_observation:{delivery_id}",)
+    )
+    event_id = cur.fetchone()[0]
+
+    # First reduction
+    cur.execute("SELECT pub_neural.reduce_event(%s::uuid);", (str(event_id),))
+    res1 = cur.fetchone()[0]
+    assert res1 == "SUPPORTED"
+    conn.commit()
+
+    # Second reduction (replay)
+    cur.execute("SELECT pub_neural.reduce_event(%s::uuid);", (str(event_id),))
+    res2 = cur.fetchone()[0]
+    assert res2 == "SUPPORTED"
+    conn.commit()
+
+    # Verify exactly 1 observation row exists
+    cur.execute(
+        "SELECT COUNT(*) FROM pub_neural.neural_repository_observations WHERE delivery_id = %s;",
+        (delivery_id,)
+    )
+    count = cur.fetchone()[0]
+    assert count == 1, f"Expected exactly 1 projection row on replay, found {count}"
+
+    conn.close()
+
+
+def test_repository_observed_malformed_guard(postgres_container):
+    """
+    V0.2-03: Proves:
+      Missing repository or delivery_id produces MALFORMED without crashing.
+    """
+    conn = psycopg2.connect(postgres_container)
+    cur = conn.cursor()
+
+    # Missing repository
+    cur.execute(
+        """
+        SELECT pub_neural.reduce_event((
+            '0191e4f0-0099-7000-8000-000000000001'::uuid,
+            99999,
+            'REPOSITORY_OBSERVED',
+            1, 1, 'v1', 'stream:test', 1, 'webhook_observer', 'INGESTOR'::pub_neural.neural_actor_role,
+            '{"project_id": "pub-ecom", "provenance": {"delivery_id": "d-1", "payload_hash": "abc"}}'::jsonb,
+            NULL, CURRENT_TIMESTAMP
+        )::pub_neural.neural_events);
+        """
+    )
+    res = cur.fetchone()[0]
+    assert res == "MALFORMED"
+
+    # Missing delivery_id in provenance
+    cur.execute(
+        """
+        SELECT pub_neural.reduce_event((
+            '0191e4f0-0099-7000-8000-000000000002'::uuid,
+            99998,
+            'REPOSITORY_OBSERVED',
+            1, 1, 'v1', 'stream:test', 2, 'webhook_observer', 'INGESTOR'::pub_neural.neural_actor_role,
+            '{"repository": "pubcore/pub-ecom", "project_id": "pub-ecom", "provenance": {"payload_hash": "abc"}}'::jsonb,
+            NULL, CURRENT_TIMESTAMP
+        )::pub_neural.neural_events);
+        """
+    )
+    res = cur.fetchone()[0]
+    assert res == "MALFORMED"
+
+    conn.close()
