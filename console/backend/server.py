@@ -299,11 +299,13 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
         except ValueError as val_err:
             self._send_json(400, {"error": "BadRequest", "detail": str(val_err)})
         except Exception as unhandled_err:
+            import traceback
+            traceback.print_exc()
             self._send_json(
                 500,
                 {
                     "error": "InternalServerError",
-                    "detail": "An unexpected error occurred while processing read-only request.",
+                    "detail": f"An unexpected error occurred while processing read-only request: {unhandled_err}",
                 },
             )
 
