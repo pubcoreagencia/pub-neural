@@ -23,10 +23,12 @@ from console.backend.dependencies import (
     extract_bearer_token,
     get_readonly_connection,
 )
+from console.backend.services.activity_service import get_overview_data
 from console.backend.services.graph_service import get_entity_detail, get_neighborhood
 from console.backend.services.search_service import execute_console_search
 from console.backend.services.status_service import get_system_status
 from console.backend.services.timeline_service import get_event_detail, get_events_list
+
 
 
 class ConsoleRequestHandler(BaseHTTPRequestHandler):
@@ -159,7 +161,21 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
             # All remaining endpoints require Authorization: Bearer <token>
             token = extract_bearer_token(self.headers.get("Authorization"))
 
-            # 3. Search endpoint
+            # 3. Overview endpoint (Command Center V0.1)
+            if path == "/api/v1/overview":
+                window_param = params.get("window_days", [14])[0]
+                try:
+                    window_days = int(window_param)
+                except ValueError:
+                    window_days = 14
+
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    overview_dto = get_overview_data(cur, window_days=window_days)
+                    self._send_json(200, overview_dto.to_dict())
+                return
+
+            # 4. Search endpoint
+
             if path == "/api/v1/search":
                 q_list = params.get("q")
                 if not q_list or not q_list[0].strip():

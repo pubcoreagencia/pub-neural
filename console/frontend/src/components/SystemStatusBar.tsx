@@ -3,9 +3,10 @@ import { NeuralAPI } from "../api/client";
 import type { SystemStatusDTO } from "../api/types";
 
 interface SystemStatusBarProps {
-  viewMode: "graph" | "timeline";
-  onViewModeChange: (mode: "graph" | "timeline") => void;
+  viewMode: "overview" | "graph" | "timeline";
+  onViewModeChange: (mode: "overview" | "graph" | "timeline") => void;
 }
+
 
 export function SystemStatusBar({ viewMode, onViewModeChange }: SystemStatusBarProps) {
   const [status, setStatus] = useState<SystemStatusDTO | null>(null);
@@ -101,6 +102,23 @@ export function SystemStatusBar({ viewMode, onViewModeChange }: SystemStatusBarP
         >
           <button
             type="button"
+            onClick={() => onViewModeChange("overview")}
+            style={{
+              padding: "4px 12px",
+              borderRadius: 4,
+              border: "none",
+              fontSize: "0.72rem",
+              fontWeight: 600,
+              cursor: "pointer",
+              backgroundColor: viewMode === "overview" ? "#0369a1" : "transparent",
+              color: viewMode === "overview" ? "#ffffff" : "#94a3b8",
+              transition: "all 0.15s ease",
+            }}
+          >
+            ⌘ Overview
+          </button>
+          <button
+            type="button"
             onClick={() => onViewModeChange("graph")}
             style={{
               padding: "4px 12px",
@@ -116,6 +134,7 @@ export function SystemStatusBar({ viewMode, onViewModeChange }: SystemStatusBarP
           >
             ✦ Knowledge Graph
           </button>
+
           <button
             type="button"
             onClick={() => onViewModeChange("timeline")}

@@ -256,3 +256,47 @@ class ErrorResponseDTO:
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class OverviewProjectDTO:
+    project_id: str
+    observed_repository_count: int
+    observation_count: int
+    activity_today: int
+    activity_7d: int
+    last_observation_at: Optional[str]
+    active_node_count: int
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class DailyActivityBucketDTO:
+    day: str
+    project_id: str
+    observed_count: int
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class OverviewResponseDTO:
+    generated_at: str
+    window_days: int
+    database_health: str
+    projector_health: str
+    projects: List[OverviewProjectDTO]
+    daily_activity: List[DailyActivityBucketDTO]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "generated_at": self.generated_at,
+            "window_days": self.window_days,
+            "database_health": self.database_health,
+            "projector_health": self.projector_health,
+            "projects": [p.to_dict() for p in self.projects],
+            "daily_activity": [b.to_dict() for b in self.daily_activity],
+        }

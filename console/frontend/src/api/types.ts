@@ -159,3 +159,28 @@ export interface EventListResponseDTO {
   offset: number;
 }
 
+export interface OverviewProjectDTO {
+  project_id: string;
+  observed_repository_count: number;
+  observation_count: number;
+  activity_today: number;
+  activity_7d: number;
+  last_observation_at: string | null;
+  active_node_count: number;
+}
+
+export interface DailyActivityBucketDTO {
+  day: string;
+  project_id: string;
+  observed_count: number;
+}
+
+export interface OverviewResponseDTO {
+  generated_at: string;
+  window_days: number;
+  database_health: string;
+  projector_health: string;
+  projects: OverviewProjectDTO[];
+  daily_activity: DailyActivityBucketDTO[];
+}
+

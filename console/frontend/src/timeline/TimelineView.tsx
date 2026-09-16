@@ -6,12 +6,14 @@ interface TimelineViewProps {
   selectedEventId: string | null;
   onSelectEvent: (eventId: string) => void;
   onNavigateEntity?: (entityId: string) => void;
+  initialStreamFilter?: string;
 }
 
 export function TimelineView({
   selectedEventId,
   onSelectEvent,
   onNavigateEntity,
+  initialStreamFilter = "",
 }: TimelineViewProps) {
   const [events, setEvents] = useState<EventItemDTO[]>([]);
   const [loading, setLoading] = useState(false);
@@ -19,7 +21,8 @@ export function TimelineView({
 
   // Filters & pagination
   const [eventTypeFilter, setEventTypeFilter] = useState("");
-  const [streamIdFilter, setStreamIdFilter] = useState("");
+  const [streamIdFilter, setStreamIdFilter] = useState(initialStreamFilter);
+
   const [limit, setLimit] = useState(50);
   const [offset, setOffset] = useState(0);
 

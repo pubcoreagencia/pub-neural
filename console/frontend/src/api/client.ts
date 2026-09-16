@@ -5,6 +5,7 @@ import type {
   SystemStatusDTO,
   EventListResponseDTO,
   EventDetailDTO,
+  OverviewResponseDTO,
 } from "./types";
 
 const API_BASE = "http://127.0.0.1:8080/api/v1";
@@ -25,6 +26,10 @@ async function fetchApi<T>(endpoint: string): Promise<T> {
 export const NeuralAPI = {
   async getStatus(): Promise<SystemStatusDTO> {
     return fetchApi<SystemStatusDTO>("/status");
+  },
+
+  async getOverview(windowDays: number = 14): Promise<OverviewResponseDTO> {
+    return fetchApi<OverviewResponseDTO>(`/overview?window_days=${windowDays}`);
   },
 
   async search(query: string): Promise<SearchResponseDTO> {
@@ -61,4 +66,3 @@ export const NeuralAPI = {
     return fetchApi<EventDetailDTO>(`/events/${encodeURIComponent(eventId)}`);
   },
 };
-
