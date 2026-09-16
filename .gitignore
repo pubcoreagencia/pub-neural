@@ -7,3 +7,5 @@ htmlcov/
 *.sqlite3
 temp_*
 *.log
+.env
+.env.*

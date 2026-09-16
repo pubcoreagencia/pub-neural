@@ -73,7 +73,7 @@ class MockRetrievalEngine(NeuralRetrievalEngine):
         self.custom_batch = None
         self.raise_exc = None
 
-    def search_knowledge(self, query, trust_zone=None, project_id=None, limit=5, knowledge_classes=None, filters=None):
+    def search_knowledge(self, query, trust_zone=None, project_id=None, bearer_token=None, limit=5, knowledge_classes=None, filters=None):
         if self.raise_exc:
             raise self.raise_exc
 
