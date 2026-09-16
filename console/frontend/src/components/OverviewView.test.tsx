@@ -29,6 +29,9 @@ describe("OverviewView Component", () => {
           activity_7d: 20,
           last_observation_at: "2026-09-16T03:00:00Z",
           active_node_count: 8,
+          project_state: "UNKNOWN",
+          blocked_nodes_count: 0,
+          latest_signal: null,
         },
       ],
       daily_activity: [
@@ -67,6 +70,9 @@ describe("OverviewView Component", () => {
           activity_7d: 0,
           last_observation_at: null,
           active_node_count: 14,
+          project_state: "UNKNOWN",
+          blocked_nodes_count: 0,
+          latest_signal: null,
         },
       ],
       daily_activity: [
@@ -85,6 +91,93 @@ describe("OverviewView Component", () => {
       expect(screen.getByText(/No repository observations recorded/i)).toBeDefined();
       expect(screen.getByText("14")).toBeDefined();
       expect(screen.getByText(/Projectors: DEGRADED/i)).toBeDefined();
+    });
+  });
+
+  it("renders V0.2-A contract: project_state, blocked_nodes, latest_signal, and no synthetic progress", async () => {
+    vi.mocked(NeuralAPI.getOverview).mockResolvedValueOnce({
+      generated_at: "2026-09-16T05:00:00Z",
+      window_days: 14,
+      database_health: "HEALTHY",
+      projector_health: "HEALTHY",
+      projects: [
+        {
+          project_id: "pub-ecom",
+          observed_repository_count: 1,
+          observation_count: 50,
+          activity_today: 3,
+          activity_7d: 15,
+          last_observation_at: "2026-09-16T04:30:00Z",
+          active_node_count: 12,
+          project_state: "UNKNOWN",
+          blocked_nodes_count: 0,
+          latest_signal: {
+            type: "REPOSITORY_OBSERVED",
+            timestamp: "2026-09-16T04:30:00Z",
+            summary: "Observed commit a1b2c3d on branch main",
+            source: "neural_repository_observations",
+            locator: "pub-holding/pub-ecom@a1b2c3d",
+          },
+        },
+        {
+          project_id: "pub-core",
+          observed_repository_count: 0,
+          observation_count: 0,
+          activity_today: 0,
+          activity_7d: 0,
+          last_observation_at: null,
+          active_node_count: 8,
+          project_state: "UNKNOWN",
+          blocked_nodes_count: 2,
+          latest_signal: {
+            type: "TASK_EXPERIENCE_RECORDED",
+            timestamp: "2026-09-16T04:15:00Z",
+            summary: "Task task-102 completed with status SUCCESS: Upgrade auth module",
+            source: "neural_events",
+            locator: "evt-uuid-456",
+          },
+        },
+        {
+          project_id: "pub-empty",
+          observed_repository_count: 0,
+          observation_count: 0,
+          activity_today: 0,
+          activity_7d: 0,
+          last_observation_at: null,
+          active_node_count: 0,
+          project_state: "UNKNOWN",
+          blocked_nodes_count: 0,
+          latest_signal: null,
+        },
+      ],
+      daily_activity: [],
+    });
+
+    render(<OverviewView />);
+
+    await waitFor(() => {
+      // 1. Project States (strictly UNKNOWN)
+      expect(screen.getAllByText("UNKNOWN").length).toBeGreaterThanOrEqual(3);
+
+      // 2. Blocked Nodes
+      expect(screen.getByText("Blocked Nodes: 2")).toBeDefined();
+      expect(screen.getAllByText("Blocked Nodes: 0").length).toBeGreaterThanOrEqual(2);
+
+      // 3. Operational Signals
+      expect(screen.getByText("TELEMETRY")).toBeDefined();
+      expect(screen.getByText("Observed commit a1b2c3d on branch main")).toBeDefined();
+      expect(screen.getByText("pub-holding/pub-ecom@a1b2c3d")).toBeDefined();
+
+      expect(screen.getByText("TASK SIGNAL")).toBeDefined();
+      expect(screen.getByText("Task task-102 completed with status SUCCESS: Upgrade auth module")).toBeDefined();
+      expect(screen.getByText("evt-uuid-456")).toBeDefined();
+
+      expect(screen.getByText("No operational signal recorded")).toBeDefined();
+
+      // 4. Invariants: NO synthetic progress or project health
+      expect(screen.queryByText(/Project Progress/i)).toBeNull();
+      expect(screen.queryByText(/Progress:/i)).toBeNull();
+      expect(screen.queryByText(/Project Health:/i)).toBeNull();
     });
   });
 });

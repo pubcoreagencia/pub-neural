@@ -369,6 +369,162 @@ export function OverviewView({
                   </div>
                 </div>
 
+                {/* State & Governance Indicators */}
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "8px",
+                    fontSize: "11px",
+                    fontFamily: "monospace",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ color: "#64748b" }}>STATE:</span>
+                    <span
+                      style={{
+                        padding: "2px 6px",
+                        borderRadius: "3px",
+                        backgroundColor:
+                          proj.project_state === "UNKNOWN"
+                            ? "rgba(100, 116, 139, 0.15)"
+                            : "rgba(56, 189, 248, 0.15)",
+                        color:
+                          proj.project_state === "UNKNOWN" ? "#94a3b8" : "#38bdf8",
+                        border: `1px solid ${
+                          proj.project_state === "UNKNOWN"
+                            ? "rgba(100, 116, 139, 0.3)"
+                            : "rgba(56, 189, 248, 0.3)"
+                        }`,
+                      }}
+                    >
+                      {proj.project_state}
+                    </span>
+                  </div>
+
+                  {proj.blocked_nodes_count > 0 ? (
+                    <span
+                      style={{
+                        padding: "2px 6px",
+                        borderRadius: "3px",
+                        backgroundColor: "rgba(239, 68, 68, 0.15)",
+                        color: "#f87171",
+                        border: "1px solid rgba(239, 68, 68, 0.3)",
+                      }}
+                    >
+                      Blocked Nodes: {proj.blocked_nodes_count}
+                    </span>
+                  ) : (
+                    <span style={{ color: "#475569" }}>Blocked Nodes: 0</span>
+                  )}
+                </div>
+
+                {/* Latest Operational Signal Section */}
+                <div
+                  style={{
+                    backgroundColor: "#090d16",
+                    border: "1px solid #1e293b",
+                    borderRadius: "6px",
+                    padding: "8px 10px",
+                    fontSize: "11px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: "9px",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        color: "#64748b",
+                        fontWeight: 600,
+                      }}
+                    >
+                      LATEST SIGNAL
+                    </span>
+                    {proj.latest_signal ? (
+                      <span
+                        style={{
+                          fontSize: "9px",
+                          padding: "1px 5px",
+                          borderRadius: "3px",
+                          backgroundColor:
+                            proj.latest_signal.type === "TASK_EXPERIENCE_RECORDED"
+                              ? "rgba(16, 185, 129, 0.15)"
+                              : "rgba(59, 130, 246, 0.15)",
+                          color:
+                            proj.latest_signal.type === "TASK_EXPERIENCE_RECORDED"
+                              ? "#34d399"
+                              : "#60a5fa",
+                          fontFamily: "monospace",
+                        }}
+                      >
+                        {proj.latest_signal.type === "TASK_EXPERIENCE_RECORDED"
+                          ? "TASK SIGNAL"
+                          : "TELEMETRY"}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {proj.latest_signal ? (
+                    <>
+                      <div
+                        style={{
+                          color: "#f1f5f9",
+                          fontWeight: 500,
+                          lineHeight: "1.3",
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {proj.latest_signal.summary}
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          justifyContent: "space-between",
+                          color: "#64748b",
+                          fontSize: "10px",
+                          marginTop: "2px",
+                          gap: "4px",
+                        }}
+                      >
+                        <span>
+                          {proj.latest_signal.timestamp
+                            ? new Date(proj.latest_signal.timestamp).toUTCString().slice(0, 22)
+                            : ""}
+                        </span>
+                        <span
+                          title={`Source: ${proj.latest_signal.source} | Locator: ${proj.latest_signal.locator}`}
+                          style={{
+                            fontFamily: "monospace",
+                            color: "#94a3b8",
+                            maxWidth: "180px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {proj.latest_signal.locator}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ color: "#475569", fontStyle: "italic" }}>
+                      No operational signal recorded
+                    </div>
+                  )}
+                </div>
+
                 {/* Secondary Meta */}
                 <div
                   style={{

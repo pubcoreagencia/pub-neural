@@ -159,6 +159,14 @@ export interface EventListResponseDTO {
   offset: number;
 }
 
+export interface LatestSignalDTO {
+  type: "REPOSITORY_OBSERVED" | "TASK_EXPERIENCE_RECORDED" | string;
+  timestamp: string;
+  summary: string;
+  source: string;
+  locator: string;
+}
+
 export interface OverviewProjectDTO {
   project_id: string;
   observed_repository_count: number;
@@ -167,6 +175,9 @@ export interface OverviewProjectDTO {
   activity_7d: number;
   last_observation_at: string | null;
   active_node_count: number;
+  project_state: string;
+  blocked_nodes_count: number;
+  latest_signal: LatestSignalDTO | null;
 }
 
 export interface DailyActivityBucketDTO {

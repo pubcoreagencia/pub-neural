@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from console.backend.models import (
     DailyActivityBucketDTO,
+    LatestSignalDTO,
     OverviewProjectDTO,
     OverviewResponseDTO,
     serialize_val,
@@ -28,6 +29,9 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
         * activity_today: observations recorded today in UTC [today_utc_start, current_timestamp_utc)
         * activity_7d: observations recorded in the last 7 completed/running 24h UTC intervals [now - 7d, now)
         * active_node_count: count of active knowledge nodes (is_active = TRUE)
+        * blocked_nodes_count: count of active knowledge nodes with conflict_state = 'BLOCKED'
+        * project_state: promotion_state if authoritative PROJECT node with originating_event by CEO/ADMIN exists, else 'UNKNOWN'
+        * latest_signal: deterministic latest operational signal (REPOSITORY_OBSERVED vs TASK_EXPERIENCE_RECORDED)
     - Full calendar window for daily activity: exactly N UTC days guaranteed for every project.
     """
     now_utc = datetime.now(timezone.utc)
@@ -104,11 +108,12 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
         r["project_id"]: r for r in obs_rows
     }
 
-    # 5. Per-project active knowledge nodes statistics (is_active = TRUE)
+    # 5. Per-project active knowledge nodes and blocked nodes statistics
     cur.execute("""
         SELECT
             project_id,
-            COUNT(*) AS total_active_nodes
+            COUNT(*) AS total_active_nodes,
+            COUNT(*) FILTER (WHERE conflict_state = 'BLOCKED') AS total_blocked_nodes
         FROM pub_neural.neural_nodes
         WHERE project_id IS NOT NULL AND is_active = TRUE
         GROUP BY project_id;
@@ -117,8 +122,85 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
     nodes_by_project: Dict[str, int] = {
         r["project_id"]: int(r["total_active_nodes"]) for r in node_rows
     }
+    blocked_by_project: Dict[str, int] = {
+        r["project_id"]: int(r.get("total_blocked_nodes") or 0) for r in node_rows
+    }
 
-    # 6. Build Project DTOs
+    # 6. Project State: strictly 'UNKNOWN'
+    # Semantic audit: No authoritative project lifecycle state or dedicated PROJECT node ID convention exists in the schema.
+    # We strictly adhere to zero synthetic progress/state generation.
+    project_states: Dict[str, str] = {}
+
+    # 7. Latest Operational Signal per project (deterministic rank: REPOSITORY_OBSERVED vs TASK_EXPERIENCE_RECORDED)
+    cur.execute("""
+        WITH signals AS (
+            SELECT
+                project_id,
+                'REPOSITORY_OBSERVED' AS signal_type,
+                observed_at AS sig_timestamp,
+                CASE
+                    WHEN sha IS NOT NULL AND ref IS NOT NULL THEN 'Observed commit ' || substring(sha from 1 for 7) || ' on branch ' || ref
+                    WHEN sha IS NOT NULL THEN 'Observed commit ' || substring(sha from 1 for 7)
+                    WHEN ref IS NOT NULL THEN 'Observed branch ' || ref
+                    ELSE 'Repository observation recorded'
+                END AS summary,
+                'neural_repository_observations' AS source,
+                COALESCE(repository || '@' || sha, observation_id::text) AS locator,
+                2 AS priority
+            FROM pub_neural.neural_repository_observations
+            WHERE project_id IS NOT NULL
+
+            UNION ALL
+
+            SELECT
+                COALESCE(payload->>'projectId', payload->>'project_id') AS project_id,
+                'TASK_EXPERIENCE_RECORDED' AS signal_type,
+                recorded_at AS sig_timestamp,
+                'Task ' || COALESCE(payload->>'taskId', payload->>'task_id', 'unknown') ||
+                ' completed with status ' || COALESCE(payload->>'status', 'UNKNOWN') ||
+                CASE
+                    WHEN payload->>'objective' IS NOT NULL THEN ': ' || (payload->>'objective')
+                    ELSE ''
+                END AS summary,
+                'neural_events' AS source,
+                id::text AS locator,
+                1 AS priority
+            FROM pub_neural.neural_events
+            WHERE event_type = 'TASK_EXPERIENCE_RECORDED'
+              AND (payload->>'projectId' IS NOT NULL OR payload->>'project_id' IS NOT NULL)
+        ),
+        ranked_signals AS (
+            SELECT
+                project_id,
+                signal_type,
+                sig_timestamp,
+                summary,
+                source,
+                locator,
+                ROW_NUMBER() OVER (
+                    PARTITION BY project_id
+                    ORDER BY sig_timestamp DESC, priority ASC, locator ASC
+                ) AS rank_num
+            FROM signals
+        )
+        SELECT project_id, signal_type, sig_timestamp, summary, source, locator
+        FROM ranked_signals
+        WHERE rank_num = 1;
+    """)
+    signal_rows = cur.fetchall()
+    signals_by_project: Dict[str, LatestSignalDTO] = {}
+    for r in signal_rows:
+        pid = r["project_id"]
+        ts_val = serialize_val(r["sig_timestamp"])
+        signals_by_project[pid] = LatestSignalDTO(
+            type=r["signal_type"],
+            timestamp=ts_val if ts_val else "",
+            summary=r["summary"],
+            source=r["source"],
+            locator=r["locator"],
+        )
+
+    # 8. Build Project DTOs
     projects: List[OverviewProjectDTO] = []
     for pid in observed_project_ids:
         obs_data = obs_by_project.get(pid, {})
@@ -132,6 +214,9 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
                 activity_7d=int(obs_data.get("seven_day_observations") or 0),
                 last_observation_at=serialize_val(last_obs) if last_obs else None,
                 active_node_count=nodes_by_project.get(pid, 0),
+                project_state=project_states.get(pid, "UNKNOWN"),
+                blocked_nodes_count=blocked_by_project.get(pid, 0),
+                latest_signal=signals_by_project.get(pid),
             )
         )
 

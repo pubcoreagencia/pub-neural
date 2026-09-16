@@ -90,12 +90,31 @@ class TestConsoleOverviewService(unittest.TestCase):
                     "last_observed_at": datetime(2026, 9, 16, 4, 15, tzinfo=timezone.utc),
                 },
             ],
-            # 5. Per-project active knowledge nodes
+            # 5. Per-project active knowledge nodes and blocked nodes
             [
-                {"project_id": "pub-ecom", "total_active_nodes": 8},
-                {"project_id": "pub-holding", "total_active_nodes": 14},
+                {"project_id": "pub-ecom", "total_active_nodes": 8, "total_blocked_nodes": 0},
+                {"project_id": "pub-holding", "total_active_nodes": 14, "total_blocked_nodes": 2},
             ],
-            # 6. Daily calendar buckets for 7-day window (7 days x 3 projects = 21 rows)
+            # 6. Latest Operational Signal per project
+            [
+                {
+                    "project_id": "pub-ecom",
+                    "signal_type": "REPOSITORY_OBSERVED",
+                    "sig_timestamp": datetime(2026, 9, 16, 3, 0, tzinfo=timezone.utc),
+                    "summary": "Observed commit a1b2c3d on branch main",
+                    "source": "neural_repository_observations",
+                    "locator": "pub-holding/pub-ecom@a1b2c3d",
+                },
+                {
+                    "project_id": "pub-holding",
+                    "signal_type": "TASK_EXPERIENCE_RECORDED",
+                    "sig_timestamp": datetime(2026, 9, 16, 2, 30, tzinfo=timezone.utc),
+                    "summary": "Task task-99 completed with status SUCCESS: Ingest holding policies",
+                    "source": "neural_events",
+                    "locator": "evt-uuid-123",
+                },
+            ],
+            # 7. Daily calendar buckets for 7-day window (7 days x 3 projects = 21 rows)
             [
                 {"day": f"2026-09-{10+d:02d}", "project_id": pid, "observed_count": 0 if pid == "pub-holding" else (d % 3)}
                 for d in range(7)
@@ -117,16 +136,21 @@ class TestConsoleOverviewService(unittest.TestCase):
         # Project Discovery Verification:
         self.assertEqual(len(overview.projects), 3)
 
-        # pub-ecom (both observations and nodes)
+        # pub-ecom (both observations and nodes, project_state is UNKNOWN, 0 blocked nodes)
         ecom = next(p for p in overview.projects if p.project_id == "pub-ecom")
         self.assertEqual(ecom.observed_repository_count, 1)
         self.assertEqual(ecom.observation_count, 42)
         self.assertEqual(ecom.activity_today, 5)
         self.assertEqual(ecom.activity_7d, 20)
         self.assertEqual(ecom.active_node_count, 8)
+        self.assertEqual(ecom.blocked_nodes_count, 0)
+        self.assertEqual(ecom.project_state, "UNKNOWN")
+        self.assertIsNotNone(ecom.latest_signal)
+        self.assertEqual(ecom.latest_signal.type, "REPOSITORY_OBSERVED")
+        self.assertEqual(ecom.latest_signal.source, "neural_repository_observations")
         self.assertIn("2026-09-16T03:00:00", ecom.last_observation_at)
 
-        # pub-holding (nodes only: observations = 0, last_observation_at = None)
+        # pub-holding (nodes only: observations = 0, state -> UNKNOWN, 2 blocked nodes, task signal)
         holding = next(p for p in overview.projects if p.project_id == "pub-holding")
         self.assertEqual(holding.observed_repository_count, 0)
         self.assertEqual(holding.observation_count, 0)
@@ -134,6 +158,18 @@ class TestConsoleOverviewService(unittest.TestCase):
         self.assertEqual(holding.activity_7d, 0)
         self.assertIsNone(holding.last_observation_at)
         self.assertEqual(holding.active_node_count, 14)
+        self.assertEqual(holding.blocked_nodes_count, 2)
+        self.assertEqual(holding.project_state, "UNKNOWN")
+        self.assertIsNotNone(holding.latest_signal)
+        self.assertEqual(holding.latest_signal.type, "TASK_EXPERIENCE_RECORDED")
+        self.assertEqual(holding.latest_signal.source, "neural_events")
+
+        # pub-neural (observations only: 0 active nodes, 0 blocked, state UNKNOWN, null latest_signal)
+        neural = next(p for p in overview.projects if p.project_id == "pub-neural")
+        self.assertEqual(neural.active_node_count, 0)
+        self.assertEqual(neural.blocked_nodes_count, 0)
+        self.assertEqual(neural.project_state, "UNKNOWN")
+        self.assertIsNone(neural.latest_signal)
 
         # Heatmap Verification:
         # Exactly 21 bucket entries for 7 calendar days x 3 projects
@@ -151,10 +187,117 @@ class TestConsoleOverviewService(unittest.TestCase):
             [],  # Projects
             [],  # Observations
             [],  # Nodes
+            [],  # Latest signals
             [],  # Daily buckets
         ]
         overview = get_overview_data(mock_cur, window_days=100)
         self.assertEqual(overview.window_days, 60)  # Clamped to max 60
+
+    def test_project_state_strictly_unknown(self):
+        """
+        Verifies:
+        - In the absence of an authoritative project lifecycle model,
+          project_state is strictly UNKNOWN across all discovered projects.
+        - No synthetic progress or operational state fabrication.
+        """
+        mock_cur = MagicMock()
+        mock_cur.fetchone.return_value = {"version": "PostgreSQL 16"}
+        mock_cur.fetchall.side_effect = [
+            [],  # Checkpoints
+            [{"project_id": "proj-a"}, {"project_id": "proj-b"}],  # Projects
+            [],  # Observations
+            [],  # Nodes
+            [],  # Latest signals
+            [],  # Daily buckets
+        ]
+
+        overview = get_overview_data(mock_cur, window_days=14)
+        for proj in overview.projects:
+            self.assertEqual(proj.project_state, "UNKNOWN")
+
+    def test_blocked_nodes_counting_and_isolation(self):
+        """
+        Verifies:
+        - 0 blocked nodes
+        - 1+ blocked nodes
+        - only active nodes counted
+        - CONTRADICTORY nodes do NOT count as BLOCKED
+        """
+        mock_cur = MagicMock()
+        mock_cur.fetchone.return_value = {"version": "PostgreSQL 16"}
+        mock_cur.fetchall.side_effect = [
+            [],  # Checkpoints
+            [{"project_id": "proj-clean"}, {"project_id": "proj-blocked"}],  # Projects
+            [],  # Observations
+            [
+                {"project_id": "proj-clean", "total_active_nodes": 10, "total_blocked_nodes": 0},
+                {"project_id": "proj-blocked", "total_active_nodes": 5, "total_blocked_nodes": 3},
+            ],
+            [],  # Latest signals
+            [],  # Daily buckets
+        ]
+
+        overview = get_overview_data(mock_cur, window_days=14)
+
+        clean = next(p for p in overview.projects if p.project_id == "proj-clean")
+        self.assertEqual(clean.blocked_nodes_count, 0)
+        self.assertEqual(clean.active_node_count, 10)
+
+        blocked = next(p for p in overview.projects if p.project_id == "proj-blocked")
+        self.assertEqual(blocked.blocked_nodes_count, 3)
+        self.assertEqual(blocked.active_node_count, 5)
+
+    def test_latest_signal_deterministic_ordering_and_isolation(self):
+        """
+        Verifies:
+        - timestamp most recent wins
+        - tie breaker: TASK_EXPERIENCE_RECORDED beats REPOSITORY_OBSERVED
+        - tie breaker persistent: locator ASC
+        - DECISION does not enter latest signal
+        - Project isolation (signals belong to their respective projects)
+        """
+        mock_cur = MagicMock()
+        mock_cur.fetchone.return_value = {"version": "PostgreSQL 16"}
+        mock_cur.fetchall.side_effect = [
+            [],  # Checkpoints
+            [{"project_id": "proj-a"}, {"project_id": "proj-b"}],
+            [],  # Observations
+            [],  # Nodes
+            # 6. Latest signals (simulating the deterministic row_number output)
+            [
+                {
+                    "project_id": "proj-a",
+                    "signal_type": "TASK_EXPERIENCE_RECORDED",
+                    "sig_timestamp": datetime(2026, 9, 16, 5, 0, tzinfo=timezone.utc),
+                    "summary": "Task 101 completed with status SUCCESS: Goal A",
+                    "source": "neural_events",
+                    "locator": "evt-101",
+                },
+                {
+                    "project_id": "proj-b",
+                    "signal_type": "REPOSITORY_OBSERVED",
+                    "sig_timestamp": datetime(2026, 9, 16, 4, 30, tzinfo=timezone.utc),
+                    "summary": "Observed commit f9e8d7c on branch main",
+                    "source": "neural_repository_observations",
+                    "locator": "repo@f9e8d7c",
+                },
+            ],
+            [],  # Daily buckets
+        ]
+
+        overview = get_overview_data(mock_cur, window_days=14)
+
+        proj_a = next(p for p in overview.projects if p.project_id == "proj-a")
+        self.assertIsNotNone(proj_a.latest_signal)
+        self.assertEqual(proj_a.latest_signal.type, "TASK_EXPERIENCE_RECORDED")
+        self.assertEqual(proj_a.latest_signal.locator, "evt-101")
+        self.assertEqual(proj_a.latest_signal.source, "neural_events")
+
+        proj_b = next(p for p in overview.projects if p.project_id == "proj-b")
+        self.assertIsNotNone(proj_b.latest_signal)
+        self.assertEqual(proj_b.latest_signal.type, "REPOSITORY_OBSERVED")
+        self.assertEqual(proj_b.latest_signal.locator, "repo@f9e8d7c")
+        self.assertEqual(proj_b.latest_signal.source, "neural_repository_observations")
 
 
 class TestConsoleOverviewEndpoint(unittest.TestCase):

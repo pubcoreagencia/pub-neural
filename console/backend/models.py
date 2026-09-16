@@ -259,6 +259,18 @@ class ErrorResponseDTO:
 
 
 @dataclass(frozen=True)
+class LatestSignalDTO:
+    type: str
+    timestamp: str
+    summary: str
+    source: str
+    locator: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class OverviewProjectDTO:
     project_id: str
     observed_repository_count: int
@@ -267,9 +279,23 @@ class OverviewProjectDTO:
     activity_7d: int
     last_observation_at: Optional[str]
     active_node_count: int
+    project_state: str = "UNKNOWN"
+    blocked_nodes_count: int = 0
+    latest_signal: Optional[LatestSignalDTO] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        return {
+            "project_id": self.project_id,
+            "observed_repository_count": self.observed_repository_count,
+            "observation_count": self.observation_count,
+            "activity_today": self.activity_today,
+            "activity_7d": self.activity_7d,
+            "last_observation_at": self.last_observation_at,
+            "active_node_count": self.active_node_count,
+            "project_state": self.project_state,
+            "blocked_nodes_count": self.blocked_nodes_count,
+            "latest_signal": self.latest_signal.to_dict() if self.latest_signal else None,
+        }
 
 
 @dataclass(frozen=True)
