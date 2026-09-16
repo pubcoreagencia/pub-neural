@@ -101,6 +101,43 @@ class TestConsoleAPI(unittest.TestCase):
             self.assertEqual(headers.get("Access-Control-Allow-Origin"), "*")
             self.assertIn("GET", headers.get("Access-Control-Allow-Methods", ""))
 
+    def test_cors_explicit_origin(self):
+        # Temporarily configure explicit CORS origin on server_config
+        original_cors = ConsoleRequestHandler.server_config.cors_origins
+        try:
+            ConsoleRequestHandler.server_config = ConsoleConfig(
+                db_url=self.config.db_url,
+                host=self.config.host,
+                port=self.config.port,
+                cors_origins=("https://pub-neural.pages.dev", "https://preview.pub-neural.pages.dev"),
+            )
+
+            # Matching origin
+            req = urllib.request.Request(
+                f"{self.base_url}/api/v1/entities/ent-1",
+                headers={"Origin": "https://pub-neural.pages.dev"},
+                method="OPTIONS",
+            )
+            with urllib.request.urlopen(req) as resp:
+                self.assertEqual(resp.headers.get("Access-Control-Allow-Origin"), "https://pub-neural.pages.dev")
+                self.assertEqual(resp.headers.get("Vary"), "Origin")
+
+            # Non-matching origin defaults to first configured
+            req_other = urllib.request.Request(
+                f"{self.base_url}/api/v1/entities/ent-1",
+                headers={"Origin": "https://malicious.example.com"},
+                method="OPTIONS",
+            )
+            with urllib.request.urlopen(req_other) as resp:
+                self.assertEqual(resp.headers.get("Access-Control-Allow-Origin"), "https://pub-neural.pages.dev")
+        finally:
+            ConsoleRequestHandler.server_config = ConsoleConfig(
+                db_url=self.config.db_url,
+                host=self.config.host,
+                port=self.config.port,
+                cors_origins=original_cors,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

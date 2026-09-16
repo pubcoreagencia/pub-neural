@@ -18,6 +18,7 @@ class ConsoleConfig:
     max_search_limit: int = 50
     default_event_limit: int = 50
     max_event_limit: int = 200
+    cors_origins: tuple = ("*",)
 
     @classmethod
     def from_environment(cls) -> "ConsoleConfig":
@@ -68,6 +69,11 @@ class ConsoleConfig:
         default_event_limit = int(os.getenv("CONSOLE_DEFAULT_EVENT_LIMIT", "50"))
         max_event_limit = int(os.getenv("CONSOLE_MAX_EVENT_LIMIT", "200"))
 
+        raw_cors = os.getenv("CONSOLE_CORS_ORIGINS", "*")
+        cors_origins = tuple(o.strip() for o in raw_cors.split(",") if o.strip())
+        if not cors_origins:
+            cors_origins = ("*",)
+
         return cls(
             db_url=db_url,
             host=host,
@@ -78,4 +84,5 @@ class ConsoleConfig:
             max_search_limit=max_search_limit,
             default_event_limit=default_event_limit,
             max_event_limit=max_event_limit,
+            cors_origins=cors_origins,
         )

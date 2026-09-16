@@ -39,6 +39,17 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
 
     server_config: ConsoleConfig = ConsoleConfig.from_environment()
 
+    def _get_cors_allow_origin(self) -> str:
+        """Resolve Access-Control-Allow-Origin based on incoming Origin header and config."""
+        allowed = getattr(self.server_config, "cors_origins", ("*",))
+        if "*" in allowed:
+            return "*"
+        req_origin = self.headers.get("Origin", "").strip()
+        if req_origin and req_origin in allowed:
+            return req_origin
+        # If no origin or not explicitly allowed, default to the first configured origin
+        return allowed[0] if allowed else "*"
+
     def _send_json(self, status_code: int, payload: Dict[str, Any]) -> None:
         """Send a JSON HTTP response with security headers."""
         try:
@@ -47,10 +58,14 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
             body = json.dumps({"error": "SerializationError", "detail": str(e)}).encode("utf-8")
             status_code = 500
 
+        allow_origin = self._get_cors_allow_origin()
+
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", allow_origin)
+        if allow_origin != "*":
+            self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -69,8 +84,11 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self) -> None:
         """Handle CORS preflight requests."""
+        allow_origin = self._get_cors_allow_origin()
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Origin", allow_origin)
+        if allow_origin != "*":
+            self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
         self.send_header("Access-Control-Max-Age", "86400")

@@ -9,14 +9,34 @@ import type {
   OverviewResponseDTO,
 } from "./types";
 
-const API_BASE = "http://127.0.0.1:8080/api/v1";
-const TOKEN = import.meta.env.VITE_NEURAL_BEARER_TOKEN;
+export function getApiBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envUrl && typeof envUrl === "string" && envUrl.trim().length > 0) {
+    const trimmed = envUrl.trim().replace(/\/+$/, "");
+    return trimmed.endsWith("/api/v1") ? trimmed : `${trimmed}/api/v1`;
+  }
+  // In development mode (vite dev), default to local backend server.
+  // In production builds without explicit VITE_API_BASE_URL, default to relative '/api/v1'.
+  if (import.meta.env.DEV) {
+    return "http://127.0.0.1:8080/api/v1";
+  }
+  return "/api/v1";
+}
+
+export function getBearerToken(): string | undefined {
+  return import.meta.env.VITE_NEURAL_BEARER_TOKEN;
+}
 
 async function fetchApi<T>(endpoint: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    headers: {
-      Authorization: `Bearer ${TOKEN}`,
-    },
+  const apiBase = getApiBaseUrl();
+  const token = getBearerToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${apiBase}${endpoint}`, {
+    headers,
   });
   if (!response.ok) {
     throw new Error(`API error: ${response.status} ${response.statusText}`);
