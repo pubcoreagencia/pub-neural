@@ -6,12 +6,18 @@ import { NeuralAPI } from "../api/client";
 vi.mock("../api/client", () => ({
   NeuralAPI: {
     getOverview: vi.fn(),
+    getGovernanceReview: vi.fn(),
   },
 }));
 
 describe("OverviewView Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(NeuralAPI.getGovernanceReview).mockResolvedValue({
+      generated_at: "2026-09-16T12:00:00Z",
+      candidates_count: 0,
+      candidates: [],
+    });
   });
 
   it("renders loading state then operational overview data", async () => {
@@ -178,6 +184,53 @@ describe("OverviewView Component", () => {
       expect(screen.queryByText(/Project Progress/i)).toBeNull();
       expect(screen.queryByText(/Progress:/i)).toBeNull();
       expect(screen.queryByText(/Project Health:/i)).toBeNull();
+    });
+  });
+
+  it("renders candidate knowledge awaiting governance review", async () => {
+    vi.mocked(NeuralAPI.getOverview).mockResolvedValueOnce({
+      generated_at: "2026-09-16T04:00:00Z",
+      window_days: 7,
+      database_health: "HEALTHY",
+      projector_health: "HEALTHY",
+      projects: [],
+      daily_activity: [],
+    });
+
+    vi.mocked(NeuralAPI.getGovernanceReview).mockResolvedValueOnce({
+      generated_at: "2026-09-16T12:00:00Z",
+      candidates_count: 1,
+      candidates: [
+        {
+          id: "finding:pub-neural:task-test:1",
+          entity_type: "LESSON",
+          title: "Supabase pgcrypto search_path configuration",
+          summary: "Must include extensions in search path",
+          content: "Detailed content",
+          promotion_state: "CANDIDATE",
+          promotion_reason: "Discovered during task-test",
+          conflict_state: "RESOLVED",
+          scope: "PROJECT",
+          project_id: "pub-neural",
+          trust_zone: "tz_internal_holding",
+          originating_event_id: "evt-001",
+          originating_event_type: "TASK_EXPERIENCE_RECORDED",
+          proposed_by_actor_id: "autonomous-gate",
+          proposed_by_actor_role: "AGENT",
+          derived_from_experience_id: "experience:pub-neural:task-test",
+          created_at: "2026-09-16T12:00:00Z",
+          evidence_count: 1,
+        },
+      ],
+    });
+
+    render(<OverviewView />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Candidate Knowledge Awaiting Governance \(1\)/i)).toBeDefined();
+      expect(screen.getByText("Supabase pgcrypto search_path configuration")).toBeDefined();
+      expect(screen.getByText("LESSON • CANDIDATE")).toBeDefined();
+      expect(screen.getByText(/Proposed By: autonomous-gate \(AGENT\)/i)).toBeDefined();
     });
   });
 });

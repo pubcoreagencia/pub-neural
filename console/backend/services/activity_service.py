@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from console.backend.models import (
+    CandidateReviewDTO,
     DailyActivityBucketDTO,
+    GovernanceReviewResponseDTO,
     LatestSignalDTO,
     OverviewProjectDTO,
     OverviewResponseDTO,
@@ -262,4 +264,75 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
         projector_health=projector_health,
         projects=projects,
         daily_activity=daily_buckets,
+    )
+
+
+def get_governance_review_data(cur) -> GovernanceReviewResponseDTO:
+    """
+    Retrieves candidate knowledge awaiting formal governance review.
+    Factual and non-evaluative:
+    - Lists active nodes with promotion_state = 'CANDIDATE'.
+    - Links to originating event, proposing actor, and provenance evidence.
+    - Zero synthetic scoring or progress rankings.
+    """
+    now_utc = datetime.now(timezone.utc)
+    cur.execute("""
+        SELECT
+            n.id,
+            n.entity_type,
+            n.title,
+            n.summary,
+            n.content,
+            n.promotion_state,
+            n.promotion_reason,
+            n.conflict_state,
+            n.scope,
+            n.project_id,
+            n.trust_zone,
+            n.originating_event_id,
+            n.created_at,
+            e.actor_id AS proposed_by_actor_id,
+            e.actor_role AS proposed_by_actor_role,
+            e.event_type AS originating_event_type,
+            parent_exp.target_id AS derived_from_experience_id,
+            (SELECT COUNT(*) FROM pub_neural.neural_evidence ev WHERE ev.node_id = n.id) AS evidence_count
+        FROM pub_neural.neural_nodes n
+        LEFT JOIN pub_neural.neural_events e ON n.originating_event_id = e.id
+        LEFT JOIN pub_neural.neural_edges parent_exp
+            ON n.id = parent_exp.source_id AND parent_exp.relation_type = 'DERIVED_FROM'
+        WHERE n.promotion_state = 'CANDIDATE' AND n.is_active = TRUE
+        ORDER BY n.created_at ASC;
+    """)
+    rows = cur.fetchall()
+
+    candidates: List[CandidateReviewDTO] = []
+    for r in rows:
+        created_val = serialize_val(r["created_at"])
+        candidates.append(
+            CandidateReviewDTO(
+                id=r["id"],
+                entity_type=r["entity_type"],
+                title=r["title"],
+                summary=r.get("summary"),
+                content=r.get("content"),
+                promotion_state=r["promotion_state"],
+                promotion_reason=r.get("promotion_reason"),
+                conflict_state=r["conflict_state"],
+                scope=r["scope"],
+                project_id=r.get("project_id"),
+                trust_zone=r["trust_zone"],
+                originating_event_id=str(r["originating_event_id"]),
+                originating_event_type=r.get("originating_event_type"),
+                proposed_by_actor_id=r.get("proposed_by_actor_id"),
+                proposed_by_actor_role=r.get("proposed_by_actor_role"),
+                derived_from_experience_id=r.get("derived_from_experience_id"),
+                created_at=created_val if created_val else "",
+                evidence_count=int(r.get("evidence_count") or 0),
+            )
+        )
+
+    return GovernanceReviewResponseDTO(
+        generated_at=now_utc.isoformat(),
+        candidates_count=len(candidates),
+        candidates=candidates,
     )

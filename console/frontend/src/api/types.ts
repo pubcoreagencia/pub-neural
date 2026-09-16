@@ -195,3 +195,30 @@ export interface OverviewResponseDTO {
   daily_activity: DailyActivityBucketDTO[];
 }
 
+export interface CandidateReviewDTO {
+  id: string;
+  entity_type: string;
+  title: string;
+  summary: string | null;
+  content: string | null;
+  promotion_state: string;
+  promotion_reason: string | null;
+  conflict_state: string;
+  scope: string;
+  project_id: string | null;
+  trust_zone: string;
+  originating_event_id: string;
+  originating_event_type: string | null;
+  proposed_by_actor_id: string | null;
+  proposed_by_actor_role: string | null;
+  derived_from_experience_id: string | null;
+  created_at: string;
+  evidence_count: number;
+}
+
+export interface GovernanceReviewResponseDTO {
+  generated_at: string;
+  candidates_count: number;
+  candidates: CandidateReviewDTO[];
+}
+

@@ -67,6 +67,7 @@ function App() {
           <OverviewView
             onSelectProjectForGraph={handleSelectProjectForGraph}
             onSelectProjectForTimeline={handleSelectProjectForTimeline}
+            onSelectEntityForGraph={handleSelectEntity}
           />
         </div>
       ) : (

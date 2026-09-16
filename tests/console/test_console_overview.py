@@ -32,12 +32,17 @@ from http.server import HTTPServer
 
 from console.backend.config import ConsoleConfig
 from console.backend.models import (
+    CandidateReviewDTO,
     DailyActivityBucketDTO,
+    GovernanceReviewResponseDTO,
     OverviewProjectDTO,
     OverviewResponseDTO,
 )
 from console.backend.server import ConsoleRequestHandler
-from console.backend.services.activity_service import get_overview_data
+from console.backend.services.activity_service import (
+    get_governance_review_data,
+    get_overview_data,
+)
 
 
 class TestConsoleOverviewService(unittest.TestCase):
@@ -299,6 +304,46 @@ class TestConsoleOverviewService(unittest.TestCase):
         self.assertEqual(proj_b.latest_signal.locator, "repo@f9e8d7c")
         self.assertEqual(proj_b.latest_signal.source, "neural_repository_observations")
 
+    def test_get_governance_review_data_service(self):
+        """
+        Verifies:
+        - get_governance_review_data retrieves candidates awaiting review.
+        - Factual and non-evaluative presentation:
+          * actor, role, originating event, conflict state, evidence count.
+        """
+        mock_cur = MagicMock()
+        mock_cur.fetchall.return_value = [
+            {
+                "id": "finding:pub-neural:task-100:1",
+                "entity_type": "LESSON",
+                "title": "PLpgSQL search_path isolation",
+                "summary": "Must include extensions schema",
+                "content": "Full finding content",
+                "promotion_state": "CANDIDATE",
+                "promotion_reason": "Discovered during task-100",
+                "conflict_state": "RESOLVED",
+                "scope": "PROJECT",
+                "project_id": "pub-neural",
+                "trust_zone": "tz_internal_holding",
+                "originating_event_id": "0191e4f0-0000-7000-8000-000000000001",
+                "created_at": datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc),
+                "proposed_by_actor_id": "autonomous-gate",
+                "proposed_by_actor_role": "AGENT",
+                "originating_event_type": "TASK_EXPERIENCE_RECORDED",
+                "derived_from_experience_id": "experience:pub-neural:task-100",
+                "evidence_count": 2,
+            }
+        ]
+
+        gov_dto = get_governance_review_data(mock_cur)
+        self.assertIsInstance(gov_dto, GovernanceReviewResponseDTO)
+        self.assertEqual(gov_dto.candidates_count, 1)
+        cand = gov_dto.candidates[0]
+        self.assertEqual(cand.id, "finding:pub-neural:task-100:1")
+        self.assertEqual(cand.promotion_state, "CANDIDATE")
+        self.assertEqual(cand.proposed_by_actor_role, "AGENT")
+        self.assertEqual(cand.evidence_count, 2)
+
 
 class TestConsoleOverviewEndpoint(unittest.TestCase):
     """E2E HTTP tests for /api/v1/overview."""
@@ -379,6 +424,66 @@ class TestConsoleOverviewEndpoint(unittest.TestCase):
     def test_overview_post_not_allowed(self):
         req = urllib.request.Request(
             f"{self.base_url}/api/v1/overview",
+            data=b'{}',
+            headers={"Content-Type": "application/json", "Authorization": "Bearer token"},
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req)
+        self.assertEqual(ctx.exception.code, 405)
+
+    @patch("console.backend.server.get_governance_review_data")
+    @patch("console.backend.server.get_readonly_connection")
+    def test_governance_review_endpoint_get_success(self, mock_get_conn, mock_get_gov):
+        mock_conn_ctx = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn_ctx.__enter__.return_value = mock_cur
+        mock_get_conn.return_value = mock_conn_ctx
+
+        mock_get_gov.return_value = GovernanceReviewResponseDTO(
+            generated_at="2026-09-16T12:00:00Z",
+            candidates_count=1,
+            candidates=[
+                CandidateReviewDTO(
+                    id="finding:pub-neural:task-1:1",
+                    entity_type="LESSON",
+                    title="Supabase extension resolution",
+                    summary="Test finding summary",
+                    content="Test finding content",
+                    promotion_state="CANDIDATE",
+                    promotion_reason="Discovered in task",
+                    conflict_state="RESOLVED",
+                    scope="PROJECT",
+                    project_id="pub-neural",
+                    trust_zone="tz_internal_holding",
+                    originating_event_id="0191e4f0-0000-7000-8000-000000000001",
+                    originating_event_type="TASK_EXPERIENCE_RECORDED",
+                    proposed_by_actor_id="autonomous-gate",
+                    proposed_by_actor_role="AGENT",
+                    derived_from_experience_id="experience:pub-neural:task-1",
+                    created_at="2026-09-16T12:00:00Z",
+                    evidence_count=1,
+                )
+            ],
+        )
+
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/governance/review",
+            headers={"Authorization": "Bearer valid-token-123"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(data["candidates_count"], 1)
+            cand = data["candidates"][0]
+            self.assertEqual(cand["id"], "finding:pub-neural:task-1:1")
+            self.assertEqual(cand["promotion_state"], "CANDIDATE")
+            self.assertEqual(cand["proposed_by_actor_role"], "AGENT")
+            self.assertEqual(cand["evidence_count"], 1)
+
+    def test_governance_review_post_not_allowed(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/governance/review",
             data=b'{}',
             headers={"Content-Type": "application/json", "Authorization": "Bearer token"},
             method="POST",

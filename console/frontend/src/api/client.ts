@@ -5,6 +5,7 @@ import type {
   SystemStatusDTO,
   EventListResponseDTO,
   EventDetailDTO,
+  GovernanceReviewResponseDTO,
   OverviewResponseDTO,
 } from "./types";
 
@@ -64,5 +65,9 @@ export const NeuralAPI = {
 
   async getEventDetail(eventId: string): Promise<EventDetailDTO> {
     return fetchApi<EventDetailDTO>(`/events/${encodeURIComponent(eventId)}`);
+  },
+
+  async getGovernanceReview(): Promise<GovernanceReviewResponseDTO> {
+    return fetchApi<GovernanceReviewResponseDTO>("/governance/review");
   },
 };

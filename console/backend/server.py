@@ -23,7 +23,10 @@ from console.backend.dependencies import (
     extract_bearer_token,
     get_readonly_connection,
 )
-from console.backend.services.activity_service import get_overview_data
+from console.backend.services.activity_service import (
+    get_governance_review_data,
+    get_overview_data,
+)
 from console.backend.services.graph_service import get_entity_detail, get_neighborhood
 from console.backend.services.search_service import execute_console_search
 from console.backend.services.status_service import get_system_status
@@ -172,6 +175,13 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                 with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
                     overview_dto = get_overview_data(cur, window_days=window_days)
                     self._send_json(200, overview_dto.to_dict())
+                return
+
+            # 3b. Governance Review endpoint (Knowledge awaiting review)
+            if path == "/api/v1/governance/review":
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    gov_dto = get_governance_review_data(cur)
+                    self._send_json(200, gov_dto.to_dict())
                 return
 
             # 4. Search endpoint

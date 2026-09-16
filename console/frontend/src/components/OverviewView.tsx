@@ -1,17 +1,20 @@
 import { useEffect, useState } from "react";
 import { NeuralAPI } from "../api/client";
-import type { OverviewResponseDTO, OverviewProjectDTO } from "../api/types";
+import type { OverviewResponseDTO, OverviewProjectDTO, CandidateReviewDTO } from "../api/types";
 
 interface OverviewViewProps {
   onSelectProjectForGraph?: (projectId: string) => void;
   onSelectProjectForTimeline?: (projectId: string) => void;
+  onSelectEntityForGraph?: (entityId: string) => void;
 }
 
 export function OverviewView({
   onSelectProjectForGraph,
   onSelectProjectForTimeline,
+  onSelectEntityForGraph,
 }: OverviewViewProps) {
   const [data, setData] = useState<OverviewResponseDTO | null>(null);
+  const [candidates, setCandidates] = useState<CandidateReviewDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [windowDays, setWindowDays] = useState(14);
@@ -19,9 +22,13 @@ export function OverviewView({
   const fetchOverview = () => {
     setLoading(true);
     setError(null);
-    NeuralAPI.getOverview(windowDays)
-      .then((res) => {
-        setData(res);
+    Promise.all([
+      NeuralAPI.getOverview(windowDays),
+      NeuralAPI.getGovernanceReview().catch(() => ({ candidates: [] })),
+    ])
+      .then(([overviewRes, govRes]) => {
+        setData(overviewRes);
+        setCandidates(govRes.candidates || []);
       })
       .catch((err: any) => {
         setError(err.message || "Failed to load overview data");
@@ -239,6 +246,158 @@ export function OverviewView({
             </button>
           </div>
         </div>
+      </div>
+
+      {/* SECTION 0: CANDIDATE KNOWLEDGE AWAITING GOVERNANCE REVIEW */}
+      <div style={{ marginBottom: "32px" }}>
+        <div
+          style={{
+            fontSize: "13px",
+            fontWeight: 600,
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+            color: "#f59e0b",
+            marginBottom: "12px",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+          }}
+        >
+          <span>Candidate Knowledge Awaiting Governance ({candidates.length})</span>
+          <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 400 }}>
+            • empirical findings requiring sovereign review before promotion
+          </span>
+        </div>
+
+        {candidates.length === 0 ? (
+          <div
+            style={{
+              padding: "16px 20px",
+              backgroundColor: "#0f172a",
+              borderRadius: "6px",
+              border: "1px dashed #334155",
+              color: "#64748b",
+              fontSize: "13px",
+            }}
+          >
+            No candidate knowledge nodes awaiting governance review.
+          </div>
+        ) : (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
+              gap: "16px",
+            }}
+          >
+            {candidates.map((cand) => (
+              <div
+                key={cand.id}
+                style={{
+                  backgroundColor: "#0f172a",
+                  border: "1px solid #334155",
+                  borderLeft: "3px solid #f59e0b",
+                  borderRadius: "6px",
+                  padding: "16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "10px",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      padding: "2px 6px",
+                      borderRadius: "3px",
+                      backgroundColor: "rgba(245, 158, 11, 0.15)",
+                      color: "#fbbf24",
+                      fontFamily: "monospace",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {cand.entity_type} • CANDIDATE
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      color: "#94a3b8",
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    {cand.project_id || "global"}
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 600,
+                    color: "#f8fafc",
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {cand.title}
+                </div>
+
+                {cand.summary && (
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      color: "#94a3b8",
+                      lineHeight: 1.5,
+                      maxHeight: "60px",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {cand.summary}
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    fontSize: "11px",
+                    color: "#64748b",
+                    fontFamily: "monospace",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                    borderTop: "1px solid #1e293b",
+                    paddingTop: "8px",
+                  }}
+                >
+                  <div>Proposed By: {cand.proposed_by_actor_id || "unknown"} ({cand.proposed_by_actor_role || "AGENT"})</div>
+                  <div>Conflict State: {cand.conflict_state}</div>
+                  {cand.derived_from_experience_id && (
+                    <div style={{ wordBreak: "break-all" }}>
+                      Derived From: {cand.derived_from_experience_id}
+                    </div>
+                  )}
+                </div>
+
+                {onSelectEntityForGraph && (
+                  <div style={{ marginTop: "4px" }}>
+                    <button
+                      onClick={() => onSelectEntityForGraph(cand.id)}
+                      style={{
+                        padding: "4px 8px",
+                        backgroundColor: "#1e293b",
+                        border: "1px solid #334155",
+                        color: "#38bdf8",
+                        borderRadius: "4px",
+                        fontSize: "11px",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Inspect in Graph →
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* SECTION 1: OBSERVED PROJECT CARDS */}

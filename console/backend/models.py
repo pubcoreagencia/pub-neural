@@ -249,6 +249,45 @@ class SystemStatusDTO:
 
 
 @dataclass(frozen=True)
+class CandidateReviewDTO:
+    id: str
+    entity_type: str
+    title: str
+    summary: Optional[str]
+    content: Optional[str]
+    promotion_state: str
+    promotion_reason: Optional[str]
+    conflict_state: str
+    scope: str
+    project_id: Optional[str]
+    trust_zone: str
+    originating_event_id: str
+    originating_event_type: Optional[str]
+    proposed_by_actor_id: Optional[str]
+    proposed_by_actor_role: Optional[str]
+    derived_from_experience_id: Optional[str]
+    created_at: str
+    evidence_count: int
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class GovernanceReviewResponseDTO:
+    generated_at: str
+    candidates_count: int
+    candidates: List[CandidateReviewDTO]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "generated_at": self.generated_at,
+            "candidates_count": self.candidates_count,
+            "candidates": [c.to_dict() for c in self.candidates],
+        }
+
+
+@dataclass(frozen=True)
 class ErrorResponseDTO:
     error: str
     detail: Optional[str] = None
