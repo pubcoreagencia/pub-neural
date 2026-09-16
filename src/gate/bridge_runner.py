@@ -119,6 +119,7 @@ class FixtureRetrievalEngine(NeuralRetrievalEngine):
         query: str,
         trust_zone: Optional[str] = None,
         project_id: Optional[str] = None,
+        bearer_token: Optional[str] = None,
         limit: int = 5,
         knowledge_classes: Optional[List[KnowledgeClass]] = None,
         filters: Optional[Dict[str, Any]] = None,
