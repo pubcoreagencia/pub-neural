@@ -2,21 +2,24 @@
 
 ## Status
 
-Integration contract defined against the current verified PUB Neural governance model.
+The concrete runtime path has now been verified in PUB Neural source.
 
-This document intentionally does **not** invent an HTTP endpoint, table name, RPC, or database migration that has not been verified in the current repository/runtime.
+## Verified runtime path
 
-## Source
+PUB Crypto must use a database connection with an active PUB Neural trusted actor and execute the following calls **inside one transaction**:
 
-- Repository: `pubcoreagencia/pub-crypto`
-- Artifact type: `TRADING_VALIDATION`
-- Producer: `PUB_CRYPTO`
+1. `pub_neural.establish_session_context(actor_id, machine_secret, trust_zone, project_id)`
+2. `pub_neural.attach_session(bearer_token)`
+3. `pub_neural.append_event(... event_type = 'TRADING_VALIDATION' ...)`
+4. insert/check `pub_neural.neural_idempotency_records`
 
-## Required provenance
+The single-transaction requirement is material because `attach_session` stores the bearer-session hash in a transaction-local setting used by `append_event`.
 
-Every accepted validation artifact must preserve:
+## Payload lineage
 
-- source repository;
+Every `TRADING_VALIDATION` event from PUB Crypto must preserve:
+
+- source repository: `pubcoreagencia/pub-crypto`;
 - source commit;
 - strategy version;
 - dataset version;
@@ -24,63 +27,62 @@ Every accepted validation artifact must preserve:
 - validation status;
 - trade count;
 - regime attribution;
-- Monte Carlo summary when present.
+- Monte Carlo summary when present;
+- producer version.
 
-The source commit is mandatory for future reproducibility. The artifact must remain project-scoped until promotion is explicitly validated.
+The event is evidence. It is not automatically an institutional lesson, rule, skill, decision, or live-trading authorization.
 
-## Semantic mapping
+## Idempotency
 
-```
-PUB_CRYPTO
-  |
-  | TRADING_VALIDATION
-  v
-PUB_NEURAL
-  |
-  +-- SOURCE / provenance
-  +-- EVIDENCE
-  +-- EVENT / episodic record
-  +-- DECISION / when applicable
-  +-- LESSON candidate / only after validation
-  +-- PATTERN candidate / only after validation
-```
+The canonical idempotency key is:
 
-A validation artifact is evidence. It is not automatically an institutional lesson, rule, skill, or decision.
+`trading_validation:pubcoreagencia/pub-crypto:<sourceCommit>:<strategyVersion>:<datasetVersion>`
+
+The event ID is deterministically derived from this key.
+
+Retries must:
+
+1. check `neural_idempotency_records`;
+2. check the deterministic event ID;
+3. replay the existing event instead of appending a duplicate;
+4. record the idempotency result if an event already exists but its idempotency record is missing.
+
+## Authority prerequisite
+
+The runtime actor must be an active PUB Neural `trusted_actor` compatible with `pub_neural_app`, with:
+
+- actor role authorized to append `TRADING_VALIDATION` events;
+- `tz_internal_holding` authorization;
+- `pub-crypto` project clearance when project-scoped;
+- machine secret provisioned out-of-band.
+
+The repository source confirms that `TRADING_VALIDATION` itself is not a privileged event type. The actor/session authorization remains the security boundary.
+
+## Fail-closed rules
+
+Reject before database access when:
+
+1. source commit is missing or invalid;
+2. artifact source is not `PUB_CRYPTO`;
+3. strategy version is missing;
+4. dataset version is missing.
+
+Reject at the database boundary when the actor, trust zone, project, or machine secret is not authorized.
 
 ## Promotion boundary
 
 `CAPTURED → OBSERVED → EXTRACTED → CANDIDATE → VALIDATED → ADOPTED → INSTITUTIONAL`
 
-PUB Crypto may create the evidence artifact.
+PUB Crypto produces validation evidence.
 
 PUB Neural owns knowledge promotion.
 
-## Fail-closed rules
-
-Reject or abstain when:
-
-1. source repository is missing;
-2. source commit is missing;
-3. strategy version is missing;
-4. dataset version is missing;
-5. observation timestamp is invalid;
-6. validation status is unknown;
-7. provenance cannot be preserved.
-
-Do not silently coerce missing provenance.
-
-## Current implementation boundary
-
-The repository currently exposes the governance and knowledge model needed for this contract, but the exact runtime ingestion API/database write path is not sufficiently verified through the connected GitHub surface.
-
-Therefore this commit is a **contract**, not a claim of live database ingestion.
-
-The next implementation must first verify the concrete ingestion/projector path from the current PUB Neural runtime and then add the smallest adapter and tests against that real path.
-
 ## Security
 
-No exchange credentials, private keys, API secrets, or real-capital authorization belong in this artifact.
+No exchange credentials, private keys, machine secrets, or real-capital authorization belong in Git, artifacts, prompts, or logs.
 
-## Principle
+## Current state
 
-**Evidence crosses the project boundary first. Institutional knowledge crosses only after governance.**
+The PUB Crypto adapter now targets this verified contract.
+
+Actual production persistence still requires a provisioned trusted actor and a reachable PUB Neural PostgreSQL runtime. Code publication alone does not claim a live database write.
