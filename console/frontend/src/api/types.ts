@@ -222,3 +222,20 @@ export interface GovernanceReviewResponseDTO {
   candidates: CandidateReviewDTO[];
 }
 
+export interface AuthResponseDTO {
+  token: string;
+  actor_id: string;
+  actor_role: string;
+  trust_zone: string;
+  project_scope: string | null;
+  expires_at: string;
+}
+
+export interface SessionInfoDTO {
+  authenticated: boolean;
+  actor_id: string;
+  actor_role: string;
+  trust_zone: string;
+  project_scope: string | null;
+  expires_at: string;
+}

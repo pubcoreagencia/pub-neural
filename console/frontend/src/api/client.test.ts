@@ -62,4 +62,53 @@ describe("NeuralAPI Client Configuration", () => {
       })
     );
   });
+
+  it("handles login, stores session token in memory/sessionStorage, and executes logout", async () => {
+    vi.stubEnv("VITE_API_BASE_URL", "https://api.pub-neural.pages.dev");
+
+    const mockLoginResponse = {
+      token: "raw_token_xyz_123",
+      actor_id: "actor:auditor:console-operator",
+      actor_role: "AUDITOR",
+      trust_zone: "tz_internal_holding",
+      project_scope: null,
+      expires_at: "2026-09-17T00:00:00Z",
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(mockLoginResponse), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          authenticated: true,
+          ...mockLoginResponse,
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ revoked: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+    const loginRes = await NeuralAPI.login({
+      actorId: "actor:auditor:console-operator",
+      secret: "secret_123",
+    });
+    expect(loginRes.token).toBe("raw_token_xyz_123");
+
+    const sessionRes = await NeuralAPI.getSession();
+    expect(sessionRes.authenticated).toBe(true);
+    expect(sessionRes.actor_role).toBe("AUDITOR");
+
+    await NeuralAPI.logout();
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
 });

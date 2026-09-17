@@ -27,6 +27,11 @@ from console.backend.services.activity_service import (
     get_governance_review_data,
     get_overview_data,
 )
+from console.backend.services.auth_service import (
+    get_current_session,
+    login_actor,
+    logout_actor,
+)
 from console.backend.services.graph_service import get_entity_detail, get_neighborhood
 from console.backend.services.search_service import execute_console_search
 from console.backend.services.status_service import get_system_status
@@ -90,20 +95,63 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
         if allow_origin != "*":
             self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Max-Age", "86400")
         self.end_headers()
 
     def do_POST(self) -> None:
-        """Explicitly prohibit mutation operations."""
-        self._drain_body()
-        self._send_json(
-            405,
-            {
-                "error": "Method Not Allowed",
-                "detail": "PUB Neural Console API is strictly read-only. Mutation operations (POST) are prohibited.",
-            },
-        )
+        """Handle session authentication requests while prohibiting all data mutations."""
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+
+        try:
+            # 1. Login endpoint: POST /api/v1/auth/login
+            if path == "/api/v1/auth/login":
+                try:
+                    content_len = int(self.headers.get("Content-Length", 0))
+                    raw_body = self.rfile.read(content_len).decode("utf-8") if content_len > 0 else "{}"
+                    body_json = json.loads(raw_body)
+                except Exception:
+                    self._send_json(400, {"error": "BadRequest", "detail": "Malformed JSON payload."})
+                    return
+
+                actor_id = body_json.get("actor_id")
+                secret = body_json.get("secret")
+                trust_zone = body_json.get("trust_zone", "tz_internal_holding")
+                project_scope = body_json.get("project_scope")
+
+                session_data = login_actor(
+                    db_url=self.server_config.db_url,
+                    actor_id=actor_id,
+                    secret=secret,
+                    trust_zone=trust_zone,
+                    project_scope=project_scope,
+                )
+                self._send_json(200, session_data)
+                return
+
+            # 2. Logout endpoint: POST /api/v1/auth/logout
+            if path == "/api/v1/auth/logout":
+                self._drain_body()
+                auth_header = self.headers.get("Authorization")
+                token = extract_bearer_token(auth_header)
+                revoked = logout_actor(self.server_config.db_url, token)
+                self._send_json(200, {"revoked": revoked, "status": "LOGGED_OUT"})
+                return
+
+            # Explicitly reject all other POST mutations
+            self._drain_body()
+            self._send_json(
+                405,
+                {
+                    "error": "Method Not Allowed",
+                    "detail": "PUB Neural Console API is strictly read-only. Mutation operations (POST) are prohibited.",
+                },
+            )
+        except AuthenticationError as auth_err:
+            self._send_json(401, {"error": "Unauthorized", "detail": str(auth_err)})
+        except Exception as e:
+            self._send_json(500, {"error": "InternalServerError", "detail": str(e)})
 
     def do_PUT(self) -> None:
         """Explicitly prohibit mutation operations."""
@@ -177,6 +225,14 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                 ) as cur:
                     status_dto = get_system_status(cur, bearer_token=token)
                     self._send_json(200, status_dto.to_dict())
+                return
+
+            # 2b. Session verification: GET /api/v1/auth/session
+            if path == "/api/v1/auth/session":
+                auth_header = self.headers.get("Authorization")
+                token = extract_bearer_token(auth_header)
+                session_info = get_current_session(self.server_config.db_url, token)
+                self._send_json(200, session_info)
                 return
 
             # All remaining endpoints require Authorization: Bearer <token>

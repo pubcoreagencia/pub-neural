@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ExplorerSidebar } from "./components/ExplorerSidebar";
 import { InspectorPanel } from "./components/InspectorPanel";
 import { GraphCanvas } from "./graph/GraphCanvas";
 import { TimelineView } from "./timeline/TimelineView";
 import { SystemStatusBar } from "./components/SystemStatusBar";
 import { OverviewView } from "./components/OverviewView";
+import { LoginModal } from "./components/LoginModal";
+import { NeuralAPI, getBearerToken } from "./api/client";
+import type { SessionInfoDTO } from "./api/types";
 
 function App() {
   const [viewMode, setViewMode] = useState<"overview" | "graph" | "timeline">("overview");
@@ -12,6 +15,42 @@ function App() {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [inspectorTab, setInspectorTab] = useState<"entity" | "event">("entity");
   const [timelineStreamFilter, setTimelineStreamFilter] = useState<string>("");
+  const [session, setSession] = useState<SessionInfoDTO | null>(null);
+  const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
+  const [overviewRefreshKey, setOverviewRefreshKey] = useState<number>(0);
+
+  // Check active session on startup if token exists
+  useEffect(() => {
+    if (getBearerToken()) {
+      NeuralAPI.getSession()
+        .then((info) => setSession(info))
+        .catch(() => setSession(null));
+    }
+  }, []);
+
+  const handleLoginSuccess = (authData: any) => {
+    setSession({
+      authenticated: true,
+      actor_id: authData.actor_id,
+      actor_role: authData.actor_role,
+      trust_zone: authData.trust_zone,
+      project_scope: authData.project_scope,
+      expires_at: authData.expires_at,
+    });
+    setShowLoginModal(false);
+    // Trigger refresh of overview and other components
+    setOverviewRefreshKey((k) => k + 1);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await NeuralAPI.logout();
+    } catch {
+      // Ignore network errors on logout
+    }
+    setSession(null);
+    setOverviewRefreshKey((k) => k + 1);
+  };
 
   // Selection handlers
   const handleSelectEntity = (id: string) => {
@@ -59,15 +98,31 @@ function App() {
       }}
     >
       {/* 1. TOP BAR / SYSTEM STATUS */}
-      <SystemStatusBar viewMode={viewMode} onViewModeChange={setViewMode} />
+      <SystemStatusBar
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        session={session}
+        onOpenLogin={() => setShowLoginModal(true)}
+        onLogout={handleLogout}
+      />
 
-      {/* 2. MAIN WORKSPACE */}
+      {/* 2. LOGIN MODAL */}
+      {showLoginModal && (
+        <LoginModal
+          onLoginSuccess={handleLoginSuccess}
+          onClose={() => setShowLoginModal(false)}
+        />
+      )}
+
+      {/* 3. MAIN WORKSPACE */}
       {viewMode === "overview" ? (
         <div style={{ flex: 1, overflow: "hidden" }}>
           <OverviewView
+            key={overviewRefreshKey}
             onSelectProjectForGraph={handleSelectProjectForGraph}
             onSelectProjectForTimeline={handleSelectProjectForTimeline}
             onSelectEntityForGraph={handleSelectEntity}
+            onUnauthorized={() => setShowLoginModal(true)}
           />
         </div>
       ) : (

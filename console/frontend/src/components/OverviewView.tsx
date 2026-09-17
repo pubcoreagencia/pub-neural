@@ -6,12 +6,14 @@ interface OverviewViewProps {
   onSelectProjectForGraph?: (projectId: string) => void;
   onSelectProjectForTimeline?: (projectId: string) => void;
   onSelectEntityForGraph?: (entityId: string) => void;
+  onUnauthorized?: () => void;
 }
 
 export function OverviewView({
   onSelectProjectForGraph,
   onSelectProjectForTimeline,
   onSelectEntityForGraph,
+  onUnauthorized,
 }: OverviewViewProps) {
   const [data, setData] = useState<OverviewResponseDTO | null>(null);
   const [candidates, setCandidates] = useState<CandidateReviewDTO[]>([]);
@@ -31,7 +33,11 @@ export function OverviewView({
         setCandidates(govRes.candidates || []);
       })
       .catch((err: any) => {
-        setError(err.message || "Failed to load overview data");
+        const msg = err.message || "Failed to load overview data";
+        setError(msg);
+        if (err.status === 401 || msg.includes("401")) {
+          onUnauthorized?.();
+        }
       })
       .finally(() => {
         setLoading(false);
@@ -51,14 +57,31 @@ export function OverviewView({
   }
 
   if (error && !data) {
+    const isAuthError = error.includes("401");
     return (
       <div style={{ padding: "32px", color: "#f87171", fontFamily: "monospace" }}>
         Error loading Overview: {error}
-        <div style={{ marginTop: "12px" }}>
+        <div style={{ marginTop: "16px", display: "flex", gap: "10px" }}>
+          {isAuthError && onUnauthorized && (
+            <button
+              onClick={onUnauthorized}
+              style={{
+                padding: "8px 16px",
+                background: "#0284c7",
+                border: "none",
+                color: "#ffffff",
+                borderRadius: "4px",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              🔐 Authenticate Session
+            </button>
+          )}
           <button
             onClick={fetchOverview}
             style={{
-              padding: "6px 12px",
+              padding: "8px 16px",
               background: "#1e293b",
               border: "1px solid #334155",
               color: "#f1f5f9",

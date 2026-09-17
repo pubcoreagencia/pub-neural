@@ -166,5 +166,66 @@ class TestConsoleAPI(unittest.TestCase):
                 os.environ.pop("CONSOLE_HOST", None)
 
 
+    @patch("console.backend.server.login_actor")
+    def test_auth_login_endpoint(self, mock_login):
+        mock_login.return_value = {
+            "token": "tok_123456",
+            "actor_id": "actor:auditor:console-operator",
+            "actor_role": "AUDITOR",
+            "trust_zone": "tz_internal_holding",
+            "project_scope": None,
+            "expires_at": "2026-09-17T00:00:00Z",
+        }
+        payload = json.dumps({
+            "actor_id": "actor:auditor:console-operator",
+            "secret": "secret_123",
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/auth/login",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(data["token"], "tok_123456")
+            self.assertEqual(data["actor_role"], "AUDITOR")
+
+    @patch("console.backend.server.get_current_session")
+    def test_auth_session_endpoint(self, mock_get_session):
+        mock_get_session.return_value = {
+            "authenticated": True,
+            "actor_id": "actor:auditor:console-operator",
+            "actor_role": "AUDITOR",
+            "trust_zone": "tz_internal_holding",
+            "project_scope": None,
+            "expires_at": "2026-09-17T00:00:00Z",
+        }
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/auth/session",
+            headers={"Authorization": "Bearer valid_tok_123"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertTrue(data["authenticated"])
+            self.assertEqual(data["actor_id"], "actor:auditor:console-operator")
+
+    @patch("console.backend.server.logout_actor")
+    def test_auth_logout_endpoint(self, mock_logout):
+        mock_logout.return_value = True
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/auth/logout",
+            headers={"Authorization": "Bearer valid_tok_123"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertTrue(data["revoked"])
+            self.assertEqual(data["status"], "LOGGED_OUT")
+
+
 if __name__ == "__main__":
     unittest.main()

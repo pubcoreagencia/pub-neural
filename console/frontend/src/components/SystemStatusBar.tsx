@@ -1,14 +1,22 @@
 import { useEffect, useState } from "react";
 import { NeuralAPI } from "../api/client";
-import type { SystemStatusDTO } from "../api/types";
+import type { SystemStatusDTO, SessionInfoDTO } from "../api/types";
 
 interface SystemStatusBarProps {
   viewMode: "overview" | "graph" | "timeline";
   onViewModeChange: (mode: "overview" | "graph" | "timeline") => void;
+  session?: SessionInfoDTO | null;
+  onOpenLogin?: () => void;
+  onLogout?: () => void;
 }
 
-
-export function SystemStatusBar({ viewMode, onViewModeChange }: SystemStatusBarProps) {
+export function SystemStatusBar({
+  viewMode,
+  onViewModeChange,
+  session,
+  onOpenLogin,
+  onLogout,
+}: SystemStatusBarProps) {
   const [status, setStatus] = useState<SystemStatusDTO | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -335,6 +343,53 @@ export function SystemStatusBar({ viewMode, onViewModeChange }: SystemStatusBarP
         >
           {loading ? "..." : "↻"}
         </button>
+
+        {/* Session Status & Auth Controls */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 6, paddingLeft: 10, borderLeft: "1px solid #334155" }}>
+          {session?.authenticated ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", fontSize: "0.65rem", lineHeight: 1.2 }}>
+                <span style={{ color: "#38bdf8", fontWeight: 600 }}>{session.actor_id}</span>
+                <span style={{ color: "#94a3b8" }}>{session.actor_role} • {session.trust_zone}</span>
+              </div>
+              <button
+                type="button"
+                onClick={onLogout}
+                title="End authorized session"
+                style={{
+                  background: "#1e293b",
+                  border: "1px solid #475569",
+                  color: "#f87171",
+                  borderRadius: 4,
+                  padding: "3px 8px",
+                  fontSize: "0.68rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Logout
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onOpenLogin}
+              title="Authenticate with trusted actor"
+              style={{
+                background: "#0284c7",
+                border: "none",
+                color: "#ffffff",
+                borderRadius: 4,
+                padding: "3px 10px",
+                fontSize: "0.68rem",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              🔐 Login
+            </button>
+          )}
+        </div>
       </div>
     </header>
   );

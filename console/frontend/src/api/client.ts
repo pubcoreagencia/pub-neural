@@ -7,7 +7,13 @@ import type {
   EventDetailDTO,
   GovernanceReviewResponseDTO,
   OverviewResponseDTO,
+  AuthResponseDTO,
+  SessionInfoDTO,
 } from "./types";
+
+const SESSION_STORAGE_KEY = "pub_neural_session_token";
+
+let inMemoryToken: string | null = null;
 
 export function getApiBaseUrl(): string {
   const envUrl = import.meta.env.VITE_API_BASE_URL;
@@ -24,27 +30,111 @@ export function getApiBaseUrl(): string {
 }
 
 export function getBearerToken(): string | undefined {
+  if (inMemoryToken) {
+    return inMemoryToken;
+  }
+  try {
+    if (typeof window !== "undefined" && window.sessionStorage) {
+      const stored = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
+      if (stored) {
+        inMemoryToken = stored;
+        return stored;
+      }
+    }
+  } catch {
+    // Ignore storage errors in restrictive environments
+  }
   return import.meta.env.VITE_NEURAL_BEARER_TOKEN;
 }
 
-async function fetchApi<T>(endpoint: string): Promise<T> {
+export function setSessionToken(token: string | null): void {
+  inMemoryToken = token;
+  try {
+    if (typeof window !== "undefined" && window.sessionStorage) {
+      if (token) {
+        window.sessionStorage.setItem(SESSION_STORAGE_KEY, token);
+      } else {
+        window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+      }
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+async function fetchApi<T>(
+  endpoint: string,
+  options: { method?: string; body?: any; headers?: Record<string, string> } = {}
+): Promise<T> {
   const apiBase = getApiBaseUrl();
   const token = getBearerToken();
-  const headers: Record<string, string> = {};
-  if (token) {
+  const headers: Record<string, string> = {
+    ...options.headers,
+  };
+  if (token && !headers["Authorization"]) {
     headers["Authorization"] = `Bearer ${token}`;
+  }
+  if (options.body && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
   }
 
   const response = await fetch(`${apiBase}${endpoint}`, {
+    method: options.method || "GET",
     headers,
+    body: options.body ? JSON.stringify(options.body) : undefined,
   });
+
   if (!response.ok) {
-    throw new Error(`API error: ${response.status} ${response.statusText}`);
+    let errorDetail = response.statusText;
+    try {
+      const errJson = await response.json();
+      if (errJson && errJson.detail) {
+        errorDetail = errJson.detail;
+      }
+    } catch {
+      // Use statusText if body is not JSON
+    }
+    const err = new Error(`API error: ${response.status} ${errorDetail}`);
+    (err as any).status = response.status;
+    throw err;
   }
   return response.json();
 }
 
 export const NeuralAPI = {
+  async login(credentials: {
+    actorId: string;
+    secret: string;
+    trustZone?: string;
+    projectScope?: string;
+  }): Promise<AuthResponseDTO> {
+    const res = await fetchApi<AuthResponseDTO>("/auth/login", {
+      method: "POST",
+      body: {
+        actor_id: credentials.actorId,
+        secret: credentials.secret,
+        trust_zone: credentials.trustZone || "tz_internal_holding",
+        project_scope: credentials.projectScope || null,
+      },
+    });
+    setSessionToken(res.token);
+    return res;
+  },
+
+  async logout(): Promise<void> {
+    try {
+      await fetchApi<{ revoked: boolean }>("/auth/logout", {
+        method: "POST",
+      });
+    } finally {
+      setSessionToken(null);
+    }
+  },
+
+  async getSession(): Promise<SessionInfoDTO> {
+    return fetchApi<SessionInfoDTO>("/auth/session");
+  },
+
   async getStatus(): Promise<SystemStatusDTO> {
     return fetchApi<SystemStatusDTO>("/status");
   },

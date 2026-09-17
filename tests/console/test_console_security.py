@@ -101,6 +101,50 @@ class TestConsoleSecurity(unittest.TestCase):
                     pass
             self.assertIn("no bearer token provided", str(ctx.exception))
 
+    def test_auth_service_flow(self):
+        from console.backend.services.auth_service import login_actor, get_current_session, logout_actor
+        from datetime import datetime, timezone
+
+        with patch("psycopg2.connect") as mock_connect:
+            mock_conn = MagicMock()
+            mock_connect.return_value = mock_conn
+            mock_cur = MagicMock()
+            mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+
+            # 1. Test login_actor success
+            mock_cur.fetchone.side_effect = [
+                {"token": "tok_xyz"},
+                {
+                    "actor_id": "actor:auditor:console-operator",
+                    "actor_role": "AUDITOR",
+                    "active_trust_zone": "tz_internal_holding",
+                    "active_project_id": None,
+                    "expires_at": datetime.now(timezone.utc),
+                },
+            ]
+            login_data = login_actor("postgresql://dummy", "actor:auditor:console-operator", "secret_abc")
+            self.assertEqual(login_data["token"], "tok_xyz")
+            self.assertEqual(login_data["actor_role"], "AUDITOR")
+
+            # 2. Test get_current_session success
+            mock_cur.fetchone.side_effect = [
+                {
+                    "actor_id": "actor:auditor:console-operator",
+                    "actor_role": "AUDITOR",
+                    "active_trust_zone": "tz_internal_holding",
+                    "active_project_id": None,
+                    "expires_at": datetime.now(timezone.utc),
+                    "is_active": True,
+                }
+            ]
+            sess_data = get_current_session("postgresql://dummy", "tok_xyz")
+            self.assertTrue(sess_data["authenticated"])
+
+            # 3. Test logout_actor
+            mock_cur.rowcount = 1
+            revoked = logout_actor("postgresql://dummy", "tok_xyz")
+            self.assertTrue(revoked)
+
 
 if __name__ == "__main__":
     unittest.main()
