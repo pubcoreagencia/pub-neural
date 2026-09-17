@@ -29,7 +29,7 @@ BEGIN
 
   IF v_id IS NOT NULL THEN
     SELECT pub_neural.embedding_provenance_compatible(
-      v_id, 'legacy-unknown', 'legacy', NULL, 1536, 'legacy-v0', 'legacy-v0'
+      v_id, 'legacy-unknown', 'legacy', NULL, 1536, 'legacy-v0', 'legacy-v0', '{}'::jsonb
     ) INTO v_ok;
     IF v_ok THEN
       RAISE EXCEPTION 'P0: INCOMPATIBLE provenance was accepted';
