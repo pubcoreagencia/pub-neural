@@ -134,11 +134,77 @@ class TestConsoleServices(unittest.TestCase):
             ],
         ]
 
-        # Request depth 5 and limit 500 -> must bound to depth 2 and limit 150
+        # Request depth 5 and limit 500 -> must bound to depth 2 and limit 100
         graph = get_neighborhood(mock_cur, "node-1", depth=5, limit=500)
         self.assertEqual(graph.hop_depth, 2)
         self.assertEqual(graph.total_nodes, 2)
         self.assertEqual(graph.total_edges, 1)
+
+    def test_get_graph_backbone_service(self):
+        mock_cur = MagicMock()
+        mock_cur.fetchall.side_effect = [
+            # Nodes
+            [
+                {
+                    "id": "node-project-1",
+                    "entity_type": "PROJECT",
+                    "title": "Project 1",
+                    "slug": "p1",
+                    "summary": "Project summary",
+                    "promotion_state": "ADOPTED",
+                    "conflict_state": "RESOLVED",
+                    "confidence_score": 1.0,
+                    "valid_from": datetime.now(timezone.utc),
+                    "valid_until": None,
+                    "trust_zone": "tz_internal_holding",
+                    "project_id": "p1",
+                    "evidence_count": 3,
+                },
+                {
+                    "id": "node-repo-1",
+                    "entity_type": "REPOSITORY",
+                    "title": "Repo 1",
+                    "slug": "r1",
+                    "summary": "Repo summary",
+                    "promotion_state": "ADOPTED",
+                    "conflict_state": "RESOLVED",
+                    "confidence_score": 1.0,
+                    "valid_from": datetime.now(timezone.utc),
+                    "valid_until": None,
+                    "trust_zone": "tz_internal_holding",
+                    "project_id": "p1",
+                    "evidence_count": 2,
+                },
+            ],
+            # Edges
+            [
+                {
+                    "edge_id": "00000000-0000-0000-0000-000000000099",
+                    "source_id": "node-project-1",
+                    "target_id": "node-repo-1",
+                    "relation_type": "USES",
+                    "weight": 1.0,
+                    "is_bidirectional": False,
+                    "trust_zone": "tz_internal_holding",
+                    "is_active": True,
+                }
+            ],
+        ]
+
+        from console.backend.services.graph_service import get_graph_backbone
+        res = get_graph_backbone(mock_cur, limit=50)
+        self.assertEqual(res.total_nodes, 2)
+        self.assertEqual(res.total_edges, 1)
+        self.assertEqual(res.nodes[0].entity_type, "PROJECT")
+        self.assertEqual(res.edges[0].relation_type, "USES")
+
+        # Verify SQL executed with typed cast in node_sql
+        node_sql_call = mock_cur.execute.call_args_list[0]
+        self.assertIn("entity_type = ANY(%s::pub_neural.neural_entity_type[])", node_sql_call[0][0])
+        # Verify passed params contain only valid canonical entity types
+        passed_types = node_sql_call[0][1][0]
+        self.assertNotIn("HOLDING", passed_types)
+        self.assertIn("PROJECT", passed_types)
 
     def test_timeline_service(self):
         mock_cur = MagicMock()

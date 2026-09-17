@@ -18,6 +18,54 @@ from console.backend.models import (
     serialize_val,
 )
 
+# Canonical PostgreSQL ENUM definitions matching pub_neural schema
+CANONICAL_ENTITY_TYPES: Set[str] = {
+    "ORGANIZATION",
+    "TRUST_ZONE",
+    "PROJECT",
+    "REPOSITORY",
+    "DOCUMENT",
+    "SOURCE",
+    "EVIDENCE",
+    "EVENT",
+    "DECISION",
+    "RULE",
+    "GOVERNANCE",
+    "PATTERN",
+    "LESSON",
+    "SKILL",
+    "AGENT",
+    "CONCEPT",
+}
+
+CANONICAL_RELATION_TYPES: Set[str] = {
+    "USES",
+    "DEPENDS_ON",
+    "IMPLEMENTS",
+    "DISCOVERED_IN",
+    "DERIVED_FROM",
+    "VALIDATED_BY",
+    "SUPPORTED_BY",
+    "CONTRADICTS",
+    "SUPERSEDES",
+    "RELATED_TO",
+    "APPLIES_TO",
+    "CREATED_BY",
+    "USED_BY",
+    "REQUIRES",
+}
+
+CANONICAL_PROMOTION_STATES: Set[str] = {
+    "CAPTURED",
+    "OBSERVED",
+    "EXTRACTED",
+    "CANDIDATE",
+    "VALIDATED",
+    "ADOPTED",
+    "INSTITUTIONAL_CANDIDATE",
+    "INSTITUTIONAL",
+}
+
 
 def get_entity_detail(cur, entity_id: str) -> Optional[EntityDetailDTO]:
     """Retrieve detailed metadata and grounded evidence for an entity."""
@@ -122,12 +170,13 @@ def get_graph_backbone(
         "DECISION",
         "RULE",
         "GOVERNANCE",
-        "HOLDING",
         "PATTERN",
     ]
+    # Filter to valid canonical entity types
+    valid_types = [t for t in backbone_types if t in CANONICAL_ENTITY_TYPES]
 
-    query_clauses = ["is_active = TRUE", "entity_type = ANY(%s)"]
-    params: List[Any] = [backbone_types]
+    query_clauses = ["is_active = TRUE", "entity_type = ANY(%s::pub_neural.neural_entity_type[])"]
+    params: List[Any] = [valid_types]
 
     if trust_zone:
         query_clauses.append("trust_zone = %s")
@@ -151,7 +200,7 @@ def get_graph_backbone(
                  n.trust_zone, n.project_id
         ORDER BY 
             CASE 
-                WHEN n.entity_type IN ('HOLDING', 'PROJECT') THEN 1
+                WHEN n.entity_type = 'PROJECT' THEN 1
                 WHEN n.entity_type IN ('REPOSITORY', 'RULE', 'GOVERNANCE') THEN 2
                 WHEN n.entity_type = 'DECISION' THEN 3
                 ELSE 4
@@ -248,8 +297,13 @@ def get_neighborhood(
     edge_params: List[Any] = []
 
     if relation_types:
-        edge_conditions.append("relation_type = ANY(%s)")
-        edge_params.append([rt.strip().upper() for rt in relation_types])
+        valid_relations = [rt.strip().upper() for rt in relation_types if rt.strip().upper() in CANONICAL_RELATION_TYPES]
+        if valid_relations:
+            edge_conditions.append("relation_type = ANY(%s::pub_neural.neural_relation_type[])")
+            edge_params.append(valid_relations)
+        else:
+            edge_conditions.append("relation_type = ANY(%s::pub_neural.neural_relation_type[])")
+            edge_params.append([])
 
     if trust_zone:
         edge_conditions.append("trust_zone = %s")
@@ -320,16 +374,17 @@ def get_neighborhood(
         node_params: List[Any] = [list(node_ids)]
 
         if entity_types:
-            node_conditions.append("n.entity_type = ANY(%s)")
-            node_params.append([et.strip().upper() for et in entity_types])
+            valid_et = [et.strip().upper() for et in entity_types if et.strip().upper() in CANONICAL_ENTITY_TYPES]
+            node_conditions.append("n.entity_type = ANY(%s::pub_neural.neural_entity_type[])")
+            node_params.append(valid_et)
 
         if epistemic_state and epistemic_state.upper() != "ALL":
             if epistemic_state.upper() in ("CONFIRMED", "VALIDATED", "ADOPTED", "INSTITUTIONAL"):
-                node_conditions.append("n.promotion_state = ANY(%s)")
-                node_params.append(["VALIDATED", "ADOPTED", "INSTITUTIONAL", "CONFIRMED"])
+                node_conditions.append("n.promotion_state = ANY(%s::pub_neural.neural_promotion_state[])")
+                node_params.append(["VALIDATED", "ADOPTED", "INSTITUTIONAL"])
             elif epistemic_state.upper() in ("PROPOSED", "CANDIDATE", "CAPTURED", "EXTRACTED"):
-                node_conditions.append("n.promotion_state = ANY(%s)")
-                node_params.append(["CANDIDATE", "CAPTURED", "EXTRACTED", "PROPOSED"])
+                node_conditions.append("n.promotion_state = ANY(%s::pub_neural.neural_promotion_state[])")
+                node_params.append(["CANDIDATE", "CAPTURED", "EXTRACTED"])
 
         if project_id:
             node_conditions.append("n.project_id = %s")
