@@ -31,6 +31,7 @@ from console.backend.services.activity_service import (
 )
 from console.backend.services.ontology_service import (
     get_all_repositories,
+    get_governance_queues,
     get_holding_project_detail,
     get_holding_projects,
     get_project_repositories,
@@ -267,10 +268,18 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                     self._send_json(200, gov_dto.to_dict())
                 return
 
+            # 3b2. Governance Ontology Queues endpoint: GET /api/v1/governance/ontology
+            if path == "/api/v1/governance/ontology":
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    queues = get_governance_queues(cur)
+                    self._send_json(200, queues)
+                return
+
             # 3c. Holding Projects Ontology endpoint: GET /api/v1/projects
             if path == "/api/v1/projects":
                 project_type = params.get("project_type", [None])[0]
                 lifecycle_status = params.get("lifecycle_status", [None])[0]
+                ontology_status = params.get("ontology_status", [None])[0]
                 is_active_param = params.get("is_active", [None])[0]
                 is_active = None
                 if is_active_param is not None:
@@ -292,6 +301,7 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                             project_type=project_type,
                             lifecycle_status=lifecycle_status,
                             is_active=is_active,
+                            ontology_status=ontology_status,
                         )
                         self._send_json(200, holding_dto.to_dict())
                 return

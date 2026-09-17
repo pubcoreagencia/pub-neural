@@ -449,6 +449,9 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
     unclassified_repositories_count = 0
     confirmed_associations_count = 0
     proposed_associations_count = 0
+    confirmed_projects_count = 0
+    proposed_projects_count = 0
+    unknown_projects_count = 0
 
     try:
         cur.execute("SAVEPOINT sp_holding_projects;")
@@ -456,6 +459,18 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
         holding_projects_dto = hp_list.projects
         total_holding_projects = hp_list.total_projects
         multi_repo_projects_count = sum(1 for hp in hp_list.projects if hp.repositories_count > 1)
+
+        cur.execute("""
+            SELECT
+                COUNT(*) FILTER (WHERE ontology_status = 'CONFIRMED') AS confirmed_proj_count,
+                COUNT(*) FILTER (WHERE ontology_status = 'PROPOSED') AS proposed_proj_count,
+                COUNT(*) FILTER (WHERE ontology_status = 'UNKNOWN') AS unknown_proj_count
+            FROM pub_neural.holding_projects;
+        """)
+        proj_counts = cur.fetchone() or {}
+        confirmed_projects_count = int(proj_counts.get("confirmed_proj_count") or 0)
+        proposed_projects_count = int(proj_counts.get("proposed_proj_count") or 0)
+        unknown_projects_count = int(proj_counts.get("unknown_proj_count") or 0)
 
         cur.execute("SELECT COUNT(*) AS total_repos FROM pub_neural.project_registry;")
         total_repositories = int((cur.fetchone() or {}).get("total_repos", 0))
@@ -522,6 +537,9 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
         candidate_knowledge_count=int(gov_stats.get("candidate_count") or 0),
         adopted_knowledge_count=int(gov_stats.get("adopted_count") or 0),
         neural_health="SAUDAVEL" if database_health == "HEALTHY" and projector_health in ("HEALTHY", "UNKNOWN") else "DEGRADADO",
+        confirmed_projects_count=confirmed_projects_count,
+        proposed_projects_count=proposed_projects_count,
+        unknown_projects_count=unknown_projects_count,
     )
 
     return OverviewResponseDTO(

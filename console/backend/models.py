@@ -54,6 +54,10 @@ class GraphEdgeDTO:
     is_bidirectional: bool
     trust_zone: str
     is_active: bool
+    association_status: Optional[str] = None
+    classification_source: Optional[str] = None
+    classification_confidence: Optional[float] = None
+    classification_reason: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -358,6 +362,8 @@ class ProjectRepositoryAssociationDTO:
     classification_confidence: float
     classification_reason: Optional[str]
     github_url: Optional[str]
+    classified_at: Optional[str] = None
+    classified_by: Optional[str] = None
     observation_count: int = 0
     last_observation_at: Optional[str] = None
 
@@ -385,6 +391,12 @@ class HoldingProjectItemDTO:
     repositories: List[ProjectRepositoryAssociationDTO]
     created_at: str
     updated_at: str
+    ontology_status: str = "CONFIRMED"
+    ontology_source: str = "DOCS"
+    ontology_confidence: float = 1.0
+    ontology_reason: Optional[str] = None
+    ontology_verified_at: Optional[str] = None
+    ontology_verified_by: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -419,6 +431,9 @@ class ExecutiveSummaryDTO:
     candidate_knowledge_count: int
     adopted_knowledge_count: int
     neural_health: str
+    confirmed_projects_count: int = 0
+    proposed_projects_count: int = 0
+    unknown_projects_count: int = 0
 
     @property
     def total_projects(self) -> int:

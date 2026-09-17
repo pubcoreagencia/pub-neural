@@ -82,14 +82,21 @@ export const RelationEdge = memo(({
   const isHighlighted = edgeData?.isHighlighted;
   const isDimmed = edgeData?.isDimmed;
   const isActive = edgeData?.is_active ?? true;
+  const isProposed = edgeData?.association_status === "PROPOSED";
+  const isConfirmed = edgeData?.association_status === "CONFIRMED";
 
   const strokeColor = isHighlighted
     ? "#38bdf8"
+    : isProposed
+    ? "#f59e0b"
+    : isConfirmed
+    ? "#10b981"
     : isActive
     ? "#64748b"
     : "#334155";
 
-  const strokeWidth = isHighlighted ? 2.5 : 1.5;
+  const strokeWidth = isHighlighted ? 2.5 : isProposed || isConfirmed ? 2.0 : 1.5;
+  const strokeDash = isProposed ? "5,5" : isActive ? undefined : "5,5";
 
   return (
     <>
@@ -101,7 +108,7 @@ export const RelationEdge = memo(({
           stroke: strokeColor,
           strokeWidth,
           opacity: isDimmed ? 0.2 : 1.0,
-          strokeDasharray: isActive ? undefined : "5,5",
+          strokeDasharray: strokeDash,
           transition: "stroke 0.2s ease, opacity 0.2s ease",
         }}
       />

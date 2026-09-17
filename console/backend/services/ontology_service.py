@@ -21,6 +21,7 @@ def get_holding_projects(
     project_type: Optional[str] = None,
     lifecycle_status: Optional[str] = None,
     is_active: Optional[bool] = None,
+    ontology_status: Optional[str] = None,
 ) -> HoldingProjectListDTO:
     """
     Returns all holding projects from pub_neural.holding_projects
@@ -38,6 +39,12 @@ def get_holding_projects(
             hp.is_archived,
             hp.strategic_priority,
             hp.owner_scope,
+            hp.ontology_status,
+            hp.ontology_source,
+            hp.ontology_confidence,
+            hp.ontology_reason,
+            hp.ontology_verified_at,
+            hp.ontology_verified_by,
             hp.created_at,
             hp.updated_at,
             COUNT(pr.repository_id) AS repositories_count,
@@ -57,11 +64,16 @@ def get_holding_projects(
     if is_active is not None:
         query += " AND hp.is_active = %s"
         params.append(is_active)
+    if ontology_status:
+        query += " AND hp.ontology_status = %s"
+        params.append(ontology_status)
 
     query += """
         GROUP BY hp.id, hp.slug, hp.display_name, hp.description, hp.project_type,
                  hp.lifecycle_status, hp.is_active, hp.is_archived, hp.strategic_priority,
-                 hp.owner_scope, hp.created_at, hp.updated_at
+                 hp.owner_scope, hp.ontology_status, hp.ontology_source, hp.ontology_confidence,
+                 hp.ontology_reason, hp.ontology_verified_at, hp.ontology_verified_by,
+                 hp.created_at, hp.updated_at
         ORDER BY hp.is_active DESC, hp.strategic_priority ASC, hp.display_name ASC;
     """
     cur.execute(query, tuple(params))
@@ -81,6 +93,8 @@ def get_holding_projects(
             pr.classification_source,
             pr.classification_confidence,
             pr.classification_reason,
+            pr.classified_at,
+            pr.classified_by,
             reg.github_url
         FROM pub_neural.project_repositories pr
         JOIN pub_neural.project_registry reg ON pr.repository_id = reg.id
@@ -103,6 +117,8 @@ def get_holding_projects(
             classification_confidence=float(ar["classification_confidence"]),
             classification_reason=ar.get("classification_reason"),
             github_url=ar.get("github_url"),
+            classified_at=serialize_val(ar.get("classified_at")),
+            classified_by=ar.get("classified_by"),
         )
         assoc_by_project.setdefault(pid, []).append(dto)
 
@@ -159,6 +175,12 @@ def get_holding_projects(
                 repositories=p_assocs,
                 created_at=serialize_val(r["created_at"]) or "",
                 updated_at=serialize_val(r["updated_at"]) or "",
+                ontology_status=r.get("ontology_status") or "CONFIRMED",
+                ontology_source=r.get("ontology_source") or "DOCS",
+                ontology_confidence=float(r.get("ontology_confidence") or 1.0),
+                ontology_reason=r.get("ontology_reason"),
+                ontology_verified_at=serialize_val(r.get("ontology_verified_at")),
+                ontology_verified_by=r.get("ontology_verified_by"),
             )
         )
 
@@ -166,7 +188,7 @@ def get_holding_projects(
 
 
 def get_holding_project_detail(cur, project_id: str) -> Optional[HoldingProjectItemDTO]:
-    """Returns single holding project detail with full repository associations."""
+    """Returns single holding project detail with full repository associations and governance metadata."""
     cur.execute("""
         SELECT
             hp.id,
@@ -179,6 +201,12 @@ def get_holding_project_detail(cur, project_id: str) -> Optional[HoldingProjectI
             hp.is_archived,
             hp.strategic_priority,
             hp.owner_scope,
+            hp.ontology_status,
+            hp.ontology_source,
+            hp.ontology_confidence,
+            hp.ontology_reason,
+            hp.ontology_verified_at,
+            hp.ontology_verified_by,
             hp.created_at,
             hp.updated_at,
             COUNT(pr.repository_id) AS repositories_count,
@@ -189,7 +217,9 @@ def get_holding_project_detail(cur, project_id: str) -> Optional[HoldingProjectI
         WHERE hp.id = %s OR hp.slug = %s
         GROUP BY hp.id, hp.slug, hp.display_name, hp.description, hp.project_type,
                  hp.lifecycle_status, hp.is_active, hp.is_archived, hp.strategic_priority,
-                 hp.owner_scope, hp.created_at, hp.updated_at;
+                 hp.owner_scope, hp.ontology_status, hp.ontology_source, hp.ontology_confidence,
+                 hp.ontology_reason, hp.ontology_verified_at, hp.ontology_verified_by,
+                 hp.created_at, hp.updated_at;
     """, (project_id, project_id))
     r = cur.fetchone()
     if not r:
@@ -209,6 +239,8 @@ def get_holding_project_detail(cur, project_id: str) -> Optional[HoldingProjectI
             pr.classification_source,
             pr.classification_confidence,
             pr.classification_reason,
+            pr.classified_at,
+            pr.classified_by,
             reg.github_url
         FROM pub_neural.project_repositories pr
         JOIN pub_neural.project_registry reg ON pr.repository_id = reg.id
@@ -230,6 +262,8 @@ def get_holding_project_detail(cur, project_id: str) -> Optional[HoldingProjectI
             classification_confidence=float(ar["classification_confidence"]),
             classification_reason=ar.get("classification_reason"),
             github_url=ar.get("github_url"),
+            classified_at=serialize_val(ar.get("classified_at")),
+            classified_by=ar.get("classified_by"),
         )
         for ar in assoc_rows
     ]
@@ -253,6 +287,12 @@ def get_holding_project_detail(cur, project_id: str) -> Optional[HoldingProjectI
         repositories=repositories,
         created_at=serialize_val(r["created_at"]) or "",
         updated_at=serialize_val(r["updated_at"]) or "",
+        ontology_status=r.get("ontology_status") or "CONFIRMED",
+        ontology_source=r.get("ontology_source") or "DOCS",
+        ontology_confidence=float(r.get("ontology_confidence") or 1.0),
+        ontology_reason=r.get("ontology_reason"),
+        ontology_verified_at=serialize_val(r.get("ontology_verified_at")),
+        ontology_verified_by=r.get("ontology_verified_by"),
     )
 
 
@@ -271,6 +311,8 @@ def get_project_repositories(cur, project_id: str) -> List[ProjectRepositoryAsso
             pr.classification_source,
             pr.classification_confidence,
             pr.classification_reason,
+            pr.classified_at,
+            pr.classified_by,
             reg.github_url
         FROM pub_neural.project_repositories pr
         JOIN pub_neural.project_registry reg ON pr.repository_id = reg.id
@@ -293,6 +335,8 @@ def get_project_repositories(cur, project_id: str) -> List[ProjectRepositoryAsso
             classification_confidence=float(r["classification_confidence"]),
             classification_reason=r.get("classification_reason"),
             github_url=r.get("github_url"),
+            classified_at=serialize_val(r.get("classified_at")),
+            classified_by=r.get("classified_by"),
         )
         for r in rows
     ]
@@ -325,12 +369,15 @@ def get_all_repositories(cur) -> List[Dict[str, Any]]:
             hp.slug AS project_slug,
             hp.display_name AS project_display_name,
             hp.project_type,
+            hp.ontology_status AS project_ontology_status,
             pr.relationship_type,
             pr.is_primary,
             COALESCE(pr.association_status, 'UNCLASSIFIED') AS association_status,
             pr.classification_source,
             pr.classification_confidence,
-            pr.classification_reason
+            pr.classification_reason,
+            pr.classified_at,
+            pr.classified_by
         FROM pub_neural.project_registry reg
         LEFT JOIN pub_neural.project_repositories pr ON reg.id = pr.repository_id
         LEFT JOIN pub_neural.holding_projects hp ON pr.project_id = hp.id
@@ -361,12 +408,15 @@ def get_all_repositories(cur) -> List[Dict[str, Any]]:
                 "project_slug": r["project_slug"],
                 "project_display_name": r["project_display_name"],
                 "project_type": r["project_type"],
+                "project_ontology_status": r["project_ontology_status"],
                 "relationship_type": r.get("relationship_type"),
                 "is_primary": bool(r.get("is_primary", False)),
                 "association_status": r["association_status"],
                 "classification_source": r.get("classification_source"),
                 "classification_confidence": float(r["classification_confidence"]) if r.get("classification_confidence") is not None else 0.0,
                 "classification_reason": r.get("classification_reason"),
+                "classified_at": serialize_val(r.get("classified_at")),
+                "classified_by": r.get("classified_by"),
             } if r.get("project_id") else None,
         })
     return results
@@ -422,3 +472,107 @@ def get_unclassified_repositories(cur) -> List[ProjectRegistryItemDTO]:
         )
         for r in rows
     ]
+
+
+def get_governance_queues(cur) -> Dict[str, Any]:
+    """
+    Provides the 3 official governance queues for Project Ontology Governance V0.3:
+    1. pending_projects: Projects awaiting confirmation (ontology_status = 'PROPOSED')
+    2. pending_associations: Repository associations awaiting confirmation (association_status = 'PROPOSED')
+    3. unclassified_repositories: Repositories with no holding project association
+    """
+    # 1. Pending projects
+    cur.execute("""
+        SELECT
+            hp.id,
+            hp.slug,
+            hp.display_name,
+            hp.description,
+            hp.project_type,
+            hp.lifecycle_status,
+            hp.strategic_priority,
+            hp.ontology_status,
+            hp.ontology_source,
+            hp.ontology_confidence,
+            hp.ontology_reason,
+            COUNT(pr.repository_id) AS repositories_count
+        FROM pub_neural.holding_projects hp
+        LEFT JOIN pub_neural.project_repositories pr ON hp.id = pr.project_id
+        WHERE hp.ontology_status = 'PROPOSED'
+        GROUP BY hp.id, hp.slug, hp.display_name, hp.description, hp.project_type,
+                 hp.lifecycle_status, hp.strategic_priority, hp.ontology_status,
+                 hp.ontology_source, hp.ontology_confidence, hp.ontology_reason
+        ORDER BY hp.strategic_priority ASC, hp.display_name ASC;
+    """)
+    pending_projects_rows = cur.fetchall() or []
+    pending_projects = [
+        {
+            "id": r["id"],
+            "slug": r["slug"],
+            "display_name": r["display_name"],
+            "description": r.get("description"),
+            "project_type": r["project_type"],
+            "lifecycle_status": r["lifecycle_status"],
+            "strategic_priority": r["strategic_priority"],
+            "ontology_status": r["ontology_status"],
+            "ontology_source": r["ontology_source"],
+            "ontology_confidence": float(r["ontology_confidence"]),
+            "ontology_reason": r.get("ontology_reason"),
+            "repositories_count": int(r.get("repositories_count") or 0),
+        }
+        for r in pending_projects_rows
+    ]
+
+    # 2. Pending associations
+    cur.execute("""
+        SELECT
+            pr.project_id,
+            hp.display_name AS project_display_name,
+            pr.repository_id,
+            reg.repository_name,
+            reg.display_name AS repository_display_name,
+            pr.relationship_type,
+            pr.is_primary,
+            pr.association_status,
+            pr.classification_source,
+            pr.classification_confidence,
+            pr.classification_reason,
+            pr.classified_at,
+            pr.classified_by
+        FROM pub_neural.project_repositories pr
+        JOIN pub_neural.holding_projects hp ON pr.project_id = hp.id
+        JOIN pub_neural.project_registry reg ON pr.repository_id = reg.id
+        WHERE pr.association_status = 'PROPOSED'
+        ORDER BY pr.classification_confidence DESC, reg.display_name ASC;
+    """)
+    pending_assoc_rows = cur.fetchall() or []
+    pending_associations = [
+        {
+            "project_id": r["project_id"],
+            "project_display_name": r["project_display_name"],
+            "repository_id": r["repository_id"],
+            "repository_name": r["repository_name"],
+            "repository_display_name": r["repository_display_name"],
+            "relationship_type": r["relationship_type"],
+            "is_primary": bool(r["is_primary"]),
+            "association_status": r["association_status"],
+            "classification_source": r["classification_source"],
+            "classification_confidence": float(r["classification_confidence"]),
+            "classification_reason": r.get("classification_reason"),
+            "classified_at": serialize_val(r.get("classified_at")),
+            "classified_by": r.get("classified_by"),
+        }
+        for r in pending_assoc_rows
+    ]
+
+    # 3. Unclassified repositories
+    unclassified = get_unclassified_repositories(cur)
+
+    return {
+        "pending_projects_count": len(pending_projects),
+        "pending_projects": pending_projects,
+        "pending_associations_count": len(pending_associations),
+        "pending_associations": pending_associations,
+        "unclassified_repositories_count": len(unclassified),
+        "unclassified_repositories": [u.to_dict() for u in unclassified],
+    }

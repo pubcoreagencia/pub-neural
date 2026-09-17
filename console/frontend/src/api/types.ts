@@ -23,6 +23,10 @@ export interface GraphEdgeDTO {
   is_bidirectional: boolean;
   trust_zone: string;
   is_active: boolean;
+  association_status?: "CONFIRMED" | "PROPOSED" | "UNCLASSIFIED" | string | null;
+  classification_source?: string | null;
+  classification_confidence?: number | null;
+  classification_reason?: string | null;
 }
 
 export interface GraphResponseDTO {
@@ -204,6 +208,8 @@ export interface ProjectRepositoryAssociationDTO {
   classification_confidence: number;
   classification_reason?: string | null;
   github_url?: string | null;
+  classified_at?: string | null;
+  classified_by?: string | null;
 }
 
 export interface HoldingProjectItemDTO {
@@ -225,6 +231,12 @@ export interface HoldingProjectItemDTO {
   repositories: ProjectRepositoryAssociationDTO[];
   created_at: string;
   updated_at: string;
+  ontology_status: "CONFIRMED" | "PROPOSED" | "UNKNOWN" | string;
+  ontology_source: string;
+  ontology_confidence: number;
+  ontology_reason?: string | null;
+  ontology_verified_at?: string | null;
+  ontology_verified_by?: string | null;
 }
 
 export interface HoldingProjectListDTO {
@@ -239,6 +251,9 @@ export interface ExecutiveSummaryDTO {
   unclassified_repositories_count?: number;
   confirmed_associations_count?: number;
   proposed_associations_count?: number;
+  confirmed_projects_count?: number;
+  proposed_projects_count?: number;
+  unknown_projects_count?: number;
   total_projects?: number;
   active_projects: number;
   monitored_repositories: number;
@@ -247,6 +262,46 @@ export interface ExecutiveSummaryDTO {
   candidate_knowledge_count: number;
   adopted_knowledge_count: number;
   neural_health: string;
+}
+
+export interface GovernancePendingProjectDTO {
+  id: string;
+  slug: string;
+  display_name: string;
+  description?: string | null;
+  project_type: string;
+  lifecycle_status: string;
+  strategic_priority: string;
+  ontology_status: string;
+  ontology_source: string;
+  ontology_confidence: number;
+  ontology_reason?: string | null;
+  repositories_count: number;
+}
+
+export interface GovernancePendingAssociationDTO {
+  project_id: string;
+  project_display_name: string;
+  repository_id: string;
+  repository_name: string;
+  repository_display_name: string;
+  relationship_type: string;
+  is_primary: boolean;
+  association_status: string;
+  classification_source: string;
+  classification_confidence: number;
+  classification_reason?: string | null;
+  classified_at?: string | null;
+  classified_by?: string | null;
+}
+
+export interface GovernanceOntologyQueuesDTO {
+  pending_projects_count: number;
+  pending_projects: GovernancePendingProjectDTO[];
+  pending_associations_count: number;
+  pending_associations: GovernancePendingAssociationDTO[];
+  unclassified_repositories_count: number;
+  unclassified_repositories: ProjectRegistryItemDTO[];
 }
 
 export interface OverviewProjectDTO {

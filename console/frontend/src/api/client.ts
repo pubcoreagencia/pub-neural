@@ -14,6 +14,7 @@ import type {
   HoldingProjectListDTO,
   HoldingProjectItemDTO,
   ProjectRepositoryAssociationDTO,
+  GovernanceOntologyQueuesDTO,
 } from "./types";
 
 const SESSION_STORAGE_KEY = "pub_neural_session_token";
@@ -186,15 +187,21 @@ export const NeuralAPI = {
     return fetchApi<GovernanceReviewResponseDTO>("/governance/review");
   },
 
+  async getGovernanceOntologyQueues(): Promise<GovernanceOntologyQueuesDTO> {
+    return fetchApi<GovernanceOntologyQueuesDTO>("/governance/ontology");
+  },
+
   async getHoldingProjects(params?: {
     projectType?: string;
     lifecycleStatus?: string;
     isActive?: boolean;
+    ontologyStatus?: string;
   }): Promise<HoldingProjectListDTO> {
     const searchParams = new URLSearchParams();
     if (params?.projectType) searchParams.set("project_type", params.projectType);
     if (params?.lifecycleStatus) searchParams.set("lifecycle_status", params.lifecycleStatus);
     if (params?.isActive !== undefined) searchParams.set("is_active", String(params.isActive));
+    if (params?.ontologyStatus) searchParams.set("ontology_status", params.ontologyStatus);
     const qs = searchParams.toString();
     return fetchApi<HoldingProjectListDTO>(`/projects${qs ? `?${qs}` : ""}`);
   },

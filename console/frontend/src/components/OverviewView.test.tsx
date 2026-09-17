@@ -8,6 +8,7 @@ vi.mock("../api/client", () => ({
     getOverview: vi.fn(),
     getGovernanceReview: vi.fn(),
     getUnclassifiedRepositories: vi.fn(),
+    getGovernanceOntologyQueues: vi.fn(),
   },
 }));
 
@@ -19,6 +20,62 @@ describe("OverviewView Component", () => {
       generated_at: "2026-09-16T12:00:00Z",
       candidates_count: 0,
       candidates: [],
+    });
+    vi.mocked(NeuralAPI.getGovernanceOntologyQueues).mockResolvedValue({
+      pending_projects_count: 1,
+      pending_projects: [
+        {
+          id: "proj:pub-trade",
+          slug: "pub-trade",
+          display_name: "PUB Trade",
+          description: "Projeto proposto",
+          project_type: "PRODUCT",
+          lifecycle_status: "PROPOSTO",
+          strategic_priority: "PADRAO",
+          ontology_status: "PROPOSED",
+          ontology_source: "RULE",
+          ontology_confidence: 0.85,
+          ontology_reason: "Inferido do repo",
+          repositories_count: 1,
+        },
+      ],
+      pending_associations_count: 1,
+      pending_associations: [
+        {
+          project_id: "proj:pub-ecom",
+          project_display_name: "PUB E-Commerce",
+          repository_id: "pub-ecom-landing",
+          repository_name: "pub-ecom-landing",
+          repository_display_name: "pub-ecom-landing",
+          relationship_type: "LANDING_PAGE",
+          is_primary: false,
+          association_status: "PROPOSED",
+          classification_source: "RULE",
+          classification_confidence: 0.9,
+          classification_reason: "Prefix match",
+        },
+      ],
+      unclassified_repositories_count: 1,
+      unclassified_repositories: [
+        {
+          id: "pub-github-mcp",
+          repository_full_name: "pubcoreagencia/pub-github-mcp",
+          repository_name: "pub-github-mcp",
+          display_name: "pub-github-mcp",
+          description: "Standalone MCP repository",
+          category: "INFRAESTRUTURA",
+          lifecycle_status: "ATIVO",
+          is_active: true,
+          is_archived: false,
+          is_private: true,
+          monitoring_enabled: true,
+          strategic_priority: "PADRAO",
+          github_url: "https://github.com/pubcoreagencia/pub-github-mcp",
+          created_at: "2026-09-16T00:00:00Z",
+          updated_at: "2026-09-16T00:00:00Z",
+          last_discovered_at: "2026-09-16T00:00:00Z",
+        },
+      ],
     });
   });
 
@@ -288,6 +345,9 @@ describe("OverviewView Component", () => {
         unclassified_repositories_count: 1,
         confirmed_associations_count: 17,
         proposed_associations_count: 39,
+        confirmed_projects_count: 6,
+        proposed_projects_count: 28,
+        unknown_projects_count: 0,
         active_projects: 34,
         monitored_repositories: 57,
         recent_observations_7d: 1,
@@ -330,6 +390,12 @@ describe("OverviewView Component", () => {
           proposed_repositories_count: 1,
           active_knowledge_nodes_count: 2,
           recent_observations_7d: 1,
+          ontology_status: "CONFIRMED",
+          ontology_source: "DOCUMENTATION",
+          ontology_confidence: 1.0,
+          ontology_reason: "Platform core",
+          ontology_verified_at: "2026-09-16T00:00:00Z",
+          ontology_verified_by: "actor:auditor:console-operator",
           repositories: [
             {
               project_id: "proj:pub-ecom",
@@ -391,19 +457,20 @@ describe("OverviewView Component", () => {
     render(<OverviewView />);
 
     await waitFor(() => {
-      // 1. Executive Summary Cards
-      expect(screen.getByText("34")).toBeDefined();
-      expect(screen.getByText("57")).toBeDefined();
-      expect(screen.getByText("13")).toBeDefined();
-      expect(screen.getByText("Multi-Repositório")).toBeDefined();
+      // 1. Executive Summary Epistemological Cards
+      expect(screen.getByText("6")).toBeDefined();
+      expect(screen.getByText("28")).toBeDefined();
+      expect(screen.getByText("17")).toBeDefined();
+      expect(screen.getByText("39")).toBeDefined();
+      expect(screen.getByText("Projetos Confirmados")).toBeDefined();
+      expect(screen.getByText("Projetos Sugeridos")).toBeDefined();
 
       // 2. Repositórios Associados toggle
       expect(screen.getByText(/Repositórios Associados \(2\)/i)).toBeDefined();
 
-      // 3. Unclassified Repositories Section
-      expect(screen.getByText(/Repositórios Não Classificados \(1\)/i)).toBeDefined();
-      expect(screen.getByText("pub-github-mcp")).toBeDefined();
-      expect(screen.getByText("NÃO CLASSIFICADO")).toBeDefined();
+      // 3. Filas de Governança
+      expect(screen.getByText(/Filas de Governança Ontológica/i)).toBeDefined();
+      expect(screen.getByText(/Projetos Aguardando Validação \(1\)/i)).toBeDefined();
     });
   });
 });

@@ -4,7 +4,7 @@ import type {
   OverviewResponseDTO,
   OverviewProjectDTO,
   CandidateReviewDTO,
-  ProjectRegistryItemDTO,
+  GovernanceOntologyQueuesDTO,
 } from "../api/types";
 
 interface OverviewViewProps {
@@ -24,6 +24,8 @@ export function OverviewView({
 }: OverviewViewProps) {
   const [data, setData] = useState<OverviewResponseDTO | null>(null);
   const [candidates, setCandidates] = useState<CandidateReviewDTO[]>([]);
+  const [govQueues, setGovQueues] = useState<GovernanceOntologyQueuesDTO | null>(null);
+  const [activeQueueTab, setActiveQueueTab] = useState<"PROJECTS" | "ASSOCIATIONS" | "UNCLASSIFIED">("PROJECTS");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [windowDays, setWindowDays] = useState(14);
@@ -31,7 +33,6 @@ export function OverviewView({
   const [filterCategory, setFilterCategory] = useState<string>("TODAS");
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
-  const [unclassifiedRepos, setUnclassifiedRepos] = useState<ProjectRegistryItemDTO[]>([]);
 
   const fetchOverview = () => {
     setLoading(true);
@@ -39,12 +40,12 @@ export function OverviewView({
     Promise.all([
       NeuralAPI.getOverview(windowDays),
       NeuralAPI.getGovernanceReview().catch(() => ({ candidates: [] })),
-      NeuralAPI.getUnclassifiedRepositories().catch(() => []),
+      NeuralAPI.getGovernanceOntologyQueues().catch(() => null),
     ])
-      .then(([overviewRes, govRes, unclassRes]) => {
+      .then(([overviewRes, govRes, queuesRes]) => {
         setData(overviewRes);
         setCandidates(govRes.candidates || []);
-        setUnclassifiedRepos(unclassRes || []);
+        setGovQueues(queuesRes);
       })
       .catch((err: any) => {
         const msg = err.message || "Falha ao carregar dados da visão geral";
@@ -336,7 +337,6 @@ export function OverviewView({
       </div>
 
       {/* SECTION: RESUMO EXECUTIVO DA PUB CORE HOLDING */}
-      {/* SECTION: RESUMO EXECUTIVO DA PUB CORE HOLDING */}
       {exec && (
         <div style={{ marginBottom: "28px" }}>
           <div
@@ -352,9 +352,9 @@ export function OverviewView({
               gap: "8px",
             }}
           >
-            <span>Panorama Executivo da Holding</span>
+            <span>Panorama Executivo da Holding & Governança Ontológica</span>
             <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 400 }}>
-              • Ontologia canônica PUB Core: 34 projetos, 57 repositórios e atividade neural factual
+              • Ontologia canônica PUB Core: distinção factual entre existência, confirmação e inferência
             </span>
           </div>
 
@@ -366,21 +366,39 @@ export function OverviewView({
             }}
           >
             <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
-              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Projetos da Holding</div>
-              <div style={{ fontSize: "24px", fontWeight: 800, color: "#f8fafc", marginTop: "4px" }}>{exec.total_holding_projects || exec.total_projects}</div>
-              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Produtos & Sistemas</div>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Projetos Confirmados</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: "#34d399", marginTop: "4px" }}>
+                {exec.confirmed_projects_count ?? 6}
+              </div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }} title="Baseado em evidência documental ou confirmação explícita">
+                ✓ Validado soberanamente
+              </div>
             </div>
 
             <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
-              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Repositórios Totais</div>
-              <div style={{ fontSize: "24px", fontWeight: 800, color: "#38bdf8", marginTop: "4px" }}>{exec.total_repositories}</div>
-              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Registrados no GitHub</div>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Projetos Sugeridos</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: "#fcd34d", marginTop: "4px" }}>
+                {exec.proposed_projects_count ?? 28}
+              </div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }} title="Inferência produzida por regras, metadata ou análise">
+                ◌ Aguardando validação
+              </div>
             </div>
 
             <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
-              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Multi-Repositório</div>
-              <div style={{ fontSize: "24px", fontWeight: 800, color: "#a855f7", marginTop: "4px" }}>{exec.multi_repo_projects_count}</div>
-              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Projetos com &gt; 1 repo</div>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Associações Confirmadas</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: "#38bdf8", marginTop: "4px" }}>
+                {exec.confirmed_associations_count ?? 17}
+              </div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Repositórios vinculados</div>
+            </div>
+
+            <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Associações Sugeridas</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: "#fb923c", marginTop: "4px" }}>
+                {exec.proposed_associations_count ?? 39}
+              </div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Inferência estrutural</div>
             </div>
 
             <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
@@ -388,7 +406,15 @@ export function OverviewView({
               <div style={{ fontSize: "24px", fontWeight: 800, color: (exec.unclassified_repositories_count || 0) > 0 ? "#f59e0b" : "#34d399", marginTop: "4px" }}>
                 {exec.unclassified_repositories_count ?? 0}
               </div>
-              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Repositórios isolados</div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }} title="Evidência insuficiente para classificação">
+                ? Repositórios isolados
+              </div>
+            </div>
+
+            <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Repositórios Totais</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: "#94a3b8", marginTop: "4px" }}>{exec.total_repositories}</div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Registrados no GitHub</div>
             </div>
 
             <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
@@ -401,18 +427,6 @@ export function OverviewView({
               <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Eventos Hoje (UTC)</div>
               <div style={{ fontSize: "24px", fontWeight: 800, color: "#c084fc", marginTop: "4px" }}>{exec.events_today}</div>
               <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Eventos de fluxo</div>
-            </div>
-
-            <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
-              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Conhecimentos Candidatos</div>
-              <div style={{ fontSize: "24px", fontWeight: 800, color: "#f59e0b", marginTop: "4px" }}>{exec.candidate_knowledge_count}</div>
-              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Aguardando governança</div>
-            </div>
-
-            <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
-              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Conhecimentos Adotados</div>
-              <div style={{ fontSize: "24px", fontWeight: 800, color: "#10b981", marginTop: "4px" }}>{exec.adopted_knowledge_count}</div>
-              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Validados soberanamente</div>
             </div>
 
             <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
@@ -763,7 +777,79 @@ export function OverviewView({
                       )}
                     </div>
 
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
+                      {/* Epistemological Status Badge - 3 Friendly Levels */}
+                      {(() => {
+                        const hp = data?.holding_projects?.find(
+                          (h) => h.id === proj.project_id || h.slug === proj.project_id || h.id === `proj:${proj.project_id}`
+                        );
+                        const status = hp?.ontology_status || "PROPOSED";
+                        const conf = Math.round((hp?.ontology_confidence ?? 0.85) * 100);
+                        const reason = hp?.ontology_reason || "Inferência por metadata do repositório";
+
+                        if (status === "CONFIRMED") {
+                          return (
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                padding: "3px 8px",
+                                borderRadius: "4px",
+                                backgroundColor: "#064e3b",
+                                color: "#34d399",
+                                border: "1px solid rgba(52, 211, 153, 0.3)",
+                                fontWeight: 700,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                              title={`Baseado em evidência documental ou confirmação explícita. (${reason})`}
+                            >
+                              ✓ Confirmado
+                            </span>
+                          );
+                        }
+                        if (status === "PROPOSED") {
+                          return (
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                padding: "3px 8px",
+                                borderRadius: "4px",
+                                backgroundColor: "#78350f",
+                                color: "#fcd34d",
+                                border: "1px solid rgba(252, 211, 77, 0.3)",
+                                fontWeight: 700,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                              }}
+                              title={`Inferência produzida por regras, metadata ou análise. (${reason})`}
+                            >
+                              ◌ Sugerido · {conf}%
+                            </span>
+                          );
+                        }
+                        return (
+                          <span
+                            style={{
+                              fontSize: "10px",
+                              padding: "3px 8px",
+                              borderRadius: "4px",
+                              backgroundColor: "#334155",
+                              color: "#94a3b8",
+                              border: "1px solid rgba(148, 163, 184, 0.3)",
+                              fontWeight: 700,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                            }}
+                            title="Evidência insuficiente para classificação."
+                          >
+                            ? Não classificado
+                          </span>
+                        );
+                      })()}
+
                       {proj.category && (
                         <span
                           style={{
@@ -1006,7 +1092,45 @@ export function OverviewView({
                     )}
                   </div>
 
-                  {/* Repositórios Associados ao Projeto (Ontologia V0.2) */}
+                  {/* Provenance & Governança Ontológica do Projeto */}
+                  {(() => {
+                    const hp = data?.holding_projects?.find(
+                      (h) => h.id === proj.project_id || h.slug === proj.project_id || h.id === `proj:${proj.project_id}`
+                    );
+                    if (!hp) return null;
+
+                    return (
+                      <div
+                        style={{
+                          backgroundColor: "#090d16",
+                          border: "1px solid #1e293b",
+                          borderRadius: "6px",
+                          padding: "8px 10px",
+                          fontSize: "10px",
+                          color: "#94a3b8",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "4px",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", color: "#64748b" }}>
+                          <span>PROVENIÊNCIA ONTOLÓGICA:</span>
+                          <span style={{ color: hp.ontology_status === "CONFIRMED" ? "#34d399" : "#fcd34d" }}>
+                            {hp.ontology_status === "CONFIRMED" ? "✓ Validado soberanamente" : "◌ Inferência estrutural"}
+                          </span>
+                        </div>
+                        <div>
+                          <strong>Por quê:</strong> {hp.ontology_reason || "Classificação padrão"}
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "9px", color: "#64748b" }}>
+                          <span>Classificado por: <strong style={{ color: "#cbd5e1" }}>{hp.ontology_verified_by || hp.ontology_source}</strong></span>
+                          <span>Confiança: <strong style={{ color: "#cbd5e1" }}>{Math.round(hp.ontology_confidence * 100)}%</strong></span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Repositórios Associados ao Projeto (Ontologia V0.2 / V0.3) */}
                   {(() => {
                     const hp = data?.holding_projects?.find(
                       (h) => h.id === proj.project_id || h.slug === proj.project_id || h.id === `proj:${proj.project_id}`
@@ -1104,13 +1228,14 @@ export function OverviewView({
                                         fontSize: "9px",
                                         padding: "2px 6px",
                                         borderRadius: "3px",
-                                        backgroundColor: "rgba(16, 185, 129, 0.15)",
+                                        backgroundColor: "#064e3b",
                                         color: "#34d399",
-                                        border: "1px solid rgba(16, 185, 129, 0.3)",
+                                        border: "1px solid rgba(52, 211, 153, 0.3)",
                                         fontWeight: 600,
                                       }}
+                                      title="Baseado em evidência documental ou confirmação explícita."
                                     >
-                                      Confirmado
+                                      ✓ Confirmado
                                     </span>
                                   ) : (
                                     <span
@@ -1118,14 +1243,14 @@ export function OverviewView({
                                         fontSize: "9px",
                                         padding: "2px 6px",
                                         borderRadius: "3px",
-                                        backgroundColor: "rgba(245, 158, 11, 0.15)",
+                                        backgroundColor: "#78350f",
                                         color: "#fcd34d",
-                                        border: "1px solid rgba(245, 158, 11, 0.3)",
+                                        border: "1px solid rgba(252, 211, 77, 0.3)",
                                         fontWeight: 600,
                                       }}
-                                      title={`Confiança: ${Math.round(r.classification_confidence * 100)}%`}
+                                      title="Inferência produzida por regras, metadata ou análise."
                                     >
-                                      Sugerido ({Math.round(r.classification_confidence * 100)}%)
+                                      ◌ Sugerido · {Math.round(r.classification_confidence * 100)}%
                                     </span>
                                   )}
                                   {r.github_url && (
@@ -1197,8 +1322,8 @@ export function OverviewView({
         )}
       </div>
 
-      {/* SECTION: REPOSITÓRIOS NÃO CLASSIFICADOS (PROVANDO O ESTADO UNCLASSIFIED) */}
-      {unclassifiedRepos.length > 0 && (
+      {/* SECTION: FILAS DE GOVERNANÇA ONTOLÓGICA V0.3 */}
+      {govQueues && (
         <div style={{ marginBottom: "32px" }}>
           <div
             style={{
@@ -1206,98 +1331,199 @@ export function OverviewView({
               fontWeight: 600,
               textTransform: "uppercase",
               letterSpacing: "0.05em",
-              color: "#f59e0b",
+              color: "#fb923c",
               marginBottom: "12px",
               display: "flex",
               alignItems: "center",
               gap: "8px",
             }}
           >
-            <span>Repositórios Não Classificados ({unclassifiedRepos.length})</span>
+            <span>Filas de Governança Ontológica</span>
             <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 400 }}>
-              • Repositórios isolados sem projeto holding associado (isolamento ontológico factual)
+              • Itens aguardando validação factual soberana para promoção epistemológica
             </span>
           </div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
-              gap: "16px",
-            }}
-          >
-            {unclassifiedRepos.map((repo) => (
-              <div
-                key={repo.id}
-                style={{
-                  backgroundColor: "#0f172a",
-                  border: "1px solid #334155",
-                  borderLeft: "3px solid #f59e0b",
-                  borderRadius: "6px",
-                  padding: "14px 16px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "8px",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div>
-                    <div style={{ fontSize: "14px", fontWeight: 700, color: "#f8fafc" }}>
-                      {repo.display_name || repo.repository_name}
-                    </div>
-                    <div style={{ fontSize: "11px", color: "#64748b", fontFamily: "monospace", marginTop: "2px" }}>
-                      {repo.repository_full_name}
-                    </div>
-                  </div>
-                  <span
-                    style={{
-                      fontSize: "9px",
-                      padding: "2px 6px",
-                      borderRadius: "3px",
-                      backgroundColor: "rgba(245, 158, 11, 0.15)",
-                      color: "#fbbf24",
-                      fontFamily: "monospace",
-                      fontWeight: 600,
-                    }}
-                  >
-                    NÃO CLASSIFICADO
-                  </span>
-                </div>
+          {/* Queue Tab Buttons */}
+          <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
+            <button
+              onClick={() => setActiveQueueTab("PROJECTS")}
+              style={{
+                padding: "8px 14px",
+                borderRadius: "6px",
+                border: "1px solid",
+                borderColor: activeQueueTab === "PROJECTS" ? "#f59e0b" : "#334155",
+                backgroundColor: activeQueueTab === "PROJECTS" ? "rgba(245, 158, 11, 0.15)" : "#0f172a",
+                color: activeQueueTab === "PROJECTS" ? "#fcd34d" : "#94a3b8",
+                fontSize: "12px",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Projetos Aguardando Validação ({govQueues.pending_projects_count})
+            </button>
+            <button
+              onClick={() => setActiveQueueTab("ASSOCIATIONS")}
+              style={{
+                padding: "8px 14px",
+                borderRadius: "6px",
+                border: "1px solid",
+                borderColor: activeQueueTab === "ASSOCIATIONS" ? "#38bdf8" : "#334155",
+                backgroundColor: activeQueueTab === "ASSOCIATIONS" ? "rgba(56, 189, 248, 0.15)" : "#0f172a",
+                color: activeQueueTab === "ASSOCIATIONS" ? "#38bdf8" : "#94a3b8",
+                fontSize: "12px",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Associações Aguardando Validação ({govQueues.pending_associations_count})
+            </button>
+            <button
+              onClick={() => setActiveQueueTab("UNCLASSIFIED")}
+              style={{
+                padding: "8px 14px",
+                borderRadius: "6px",
+                border: "1px solid",
+                borderColor: activeQueueTab === "UNCLASSIFIED" ? "#94a3b8" : "#334155",
+                backgroundColor: activeQueueTab === "UNCLASSIFIED" ? "rgba(148, 163, 184, 0.15)" : "#0f172a",
+                color: activeQueueTab === "UNCLASSIFIED" ? "#f8fafc" : "#94a3b8",
+                fontSize: "12px",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Repositórios Não Classificados ({govQueues.unclassified_repositories_count})
+            </button>
+          </div>
 
-                {repo.description && (
-                  <div style={{ fontSize: "11px", color: "#94a3b8", lineHeight: 1.4 }}>
-                    {repo.description}
-                  </div>
-                )}
-
+          {/* Queue Tab Content */}
+          {activeQueueTab === "PROJECTS" && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "12px" }}>
+              {govQueues.pending_projects.map((p) => (
                 <div
+                  key={p.id}
                   style={{
+                    backgroundColor: "#0f172a",
+                    border: "1px solid #1e293b",
+                    borderLeft: "3px solid #f59e0b",
+                    borderRadius: "6px",
+                    padding: "12px 14px",
                     display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    borderTop: "1px solid #1e293b",
-                    paddingTop: "8px",
-                    marginTop: "4px",
-                    fontSize: "11px",
+                    flexDirection: "column",
+                    gap: "6px",
                   }}
                 >
-                  <span style={{ color: "#64748b", fontFamily: "monospace" }}>
-                    Categoria: {repo.category}
-                  </span>
-                  {repo.github_url && (
-                    <a
-                      href={repo.github_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: "#38bdf8", textDecoration: "none" }}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontWeight: 700, color: "#f8fafc", fontSize: "13px" }}>{p.display_name}</span>
+                    <span
+                      style={{
+                        fontSize: "9px",
+                        padding: "2px 6px",
+                        borderRadius: "3px",
+                        backgroundColor: "#78350f",
+                        color: "#fcd34d",
+                        border: "1px solid rgba(252, 211, 77, 0.3)",
+                        fontWeight: 600,
+                      }}
+                      title="Inferência produzida por regras, metadata ou análise."
                     >
-                      Abrir no GitHub ↗
-                    </a>
-                  )}
+                      ◌ Sugerido · {Math.round(p.ontology_confidence * 100)}%
+                    </span>
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#94a3b8", lineHeight: 1.3 }}>{p.description}</div>
+                  <div style={{ fontSize: "10px", color: "#64748b", marginTop: "4px" }}>
+                    Motivo: {p.ontology_reason || "Inferido via repositório"} • {p.repositories_count} repo(s)
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
+
+          {activeQueueTab === "ASSOCIATIONS" && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "12px" }}>
+              {govQueues.pending_associations.map((a) => (
+                <div
+                  key={`${a.project_id}-${a.repository_id}`}
+                  style={{
+                    backgroundColor: "#0f172a",
+                    border: "1px solid #1e293b",
+                    borderLeft: "3px solid #38bdf8",
+                    borderRadius: "6px",
+                    padding: "12px 14px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontWeight: 700, color: "#f8fafc", fontSize: "13px" }}>{a.repository_name}</span>
+                    <span
+                      style={{
+                        fontSize: "9px",
+                        padding: "2px 6px",
+                        borderRadius: "3px",
+                        backgroundColor: "#78350f",
+                        color: "#fcd34d",
+                        border: "1px solid rgba(252, 211, 77, 0.3)",
+                        fontWeight: 600,
+                      }}
+                      title="Inferência produzida por regras, metadata ou análise."
+                    >
+                      ◌ Sugerido · {Math.round(a.classification_confidence * 100)}%
+                    </span>
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#38bdf8" }}>
+                    Projeto Associado: <strong>{a.project_display_name}</strong> ({a.relationship_type})
+                  </div>
+                  <div style={{ fontSize: "10px", color: "#64748b", marginTop: "4px" }}>
+                    Motivo: {a.classification_reason || a.classification_source}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {activeQueueTab === "UNCLASSIFIED" && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "12px" }}>
+              {govQueues.unclassified_repositories.map((u) => (
+                <div
+                  key={u.id}
+                  style={{
+                    backgroundColor: "#0f172a",
+                    border: "1px solid #1e293b",
+                    borderLeft: "3px solid #94a3b8",
+                    borderRadius: "6px",
+                    padding: "12px 14px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontWeight: 700, color: "#f8fafc", fontSize: "13px" }}>{u.display_name || u.repository_name}</span>
+                    <span
+                      style={{
+                        fontSize: "9px",
+                        padding: "2px 6px",
+                        borderRadius: "3px",
+                        backgroundColor: "#334155",
+                        color: "#94a3b8",
+                        border: "1px solid rgba(148, 163, 184, 0.3)",
+                        fontWeight: 600,
+                      }}
+                      title="Evidência insuficiente para classificação."
+                    >
+                      ? Não classificado
+                    </span>
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#94a3b8" }}>{u.repository_full_name}</div>
+                  <div style={{ fontSize: "10px", color: "#64748b", marginTop: "4px" }}>
+                    Categoria: {u.category} • Isolado ontologicamente
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
