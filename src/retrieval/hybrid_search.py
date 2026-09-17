@@ -6,6 +6,7 @@ from psycopg2.extras import RealDictCursor
 
 from .abstention import RetrievalAbstentionPolicy
 from .embedding_model import EmbeddingModelProvider
+from .graph_search import GraphSearchEngine, GraphSearchResult
 
 
 @dataclass
@@ -21,6 +22,8 @@ class HybridSearchResult:
     project_id: Optional[str]
     originating_event_id: str
     content_hash: str
+    graph_rank: Optional[int] = None
+    structural_explanation: Optional[str] = None
     evidence_id: Optional[str] = None
     source_id: Optional[str] = None
     promotion_state: Optional[str] = None
@@ -56,15 +59,21 @@ class HybridSearchEngine:
         rrf_k: int = 60,
         lexical_limit: int = 20,
         dense_limit: int = 20,
+        graph_limit: int = 20,
         final_limit: int = 10,
+        graph_weight: float = 0.8,
         abstention_policy: Optional[RetrievalAbstentionPolicy] = None,
+        graph_engine: Optional[GraphSearchEngine] = None,
     ):
         self.db_url = db_url
         self.provider = embedding_provider
         self.rrf_k = rrf_k
         self.lexical_limit = lexical_limit
         self.dense_limit = dense_limit
+        self.graph_limit = graph_limit
         self.final_limit = final_limit
+        self.graph_weight = graph_weight
+        self.graph_engine = graph_engine
         self.abstention_policy = (
             abstention_policy
             if abstention_policy is not None
@@ -140,15 +149,26 @@ class HybridSearchEngine:
                 query_vec = self.provider.generate_embedding(query)
                 dense_results = self._retrieve_dense(cur, query_vec, active_model_id, trust_zone, project_id)
 
-                # 4. Perform Reciprocal Rank Fusion (RRF)
-                fused = self._fuse_rrf(lexical_results, dense_results)
+                # 4. Retrieve Graph Candidates if graph_engine configured
+                graph_results: List[GraphSearchResult] = []
+                if self.graph_engine:
+                    graph_results = self.graph_engine.search_graph(
+                        query=query,
+                        trust_zone=trust_zone,
+                        project_id=project_id,
+                        limit=self.graph_limit,
+                    )
 
-                # 5. Confidence / abstention gate. The policy is deliberately
+                # 5. Perform 3-Way Reciprocal Rank Fusion (RRF)
+                fused = self._fuse_rrf(lexical_results, dense_results, graph_results)
+
+                # 6. Confidence / abstention gate. The policy is deliberately
                 # explicit and disabled by default until calibrated on known data.
                 decision = self.abstention_policy.evaluate(
                     lexical_results=lexical_results,
                     dense_results=dense_results,
                     fused_results=fused,
+                    graph_results=graph_results,
                 )
                 conn.commit()
 
@@ -158,6 +178,7 @@ class HybridSearchEngine:
                         "abstention_decision": decision,
                         "lexical_count": len(lexical_results),
                         "dense_count": len(dense_results),
+                        "graph_count": len(graph_results),
                     }
 
                 return {
@@ -165,6 +186,7 @@ class HybridSearchEngine:
                     "abstention_decision": decision,
                     "lexical_count": len(lexical_results),
                     "dense_count": len(dense_results),
+                    "graph_count": len(graph_results),
                 }
         finally:
             conn.close()
@@ -404,11 +426,12 @@ class HybridSearchEngine:
     def _fuse_rrf(
         self,
         lexical_results: List[Dict[str, Any]],
-        dense_results: List[Dict[str, Any]]
+        dense_results: List[Dict[str, Any]],
+        graph_results: Optional[List[GraphSearchResult]] = None,
     ) -> List[HybridSearchResult]:
         """
-        Reciprocal Rank Fusion algorithm:
-          RRF_score(d) = sum( 1.0 / (k + rank_i(d)) )
+        3-Way Reciprocal Rank Fusion algorithm:
+          RRF_score(d) = sum( w_m / (k + rank_m(d)) )
         Tie-breaking: (rrf_score DESC, target_id ASC).
         """
         k = self.rrf_k
@@ -425,6 +448,8 @@ class HybridSearchEngine:
                 "snippet": item["snippet"],
                 "lexical_rank": item["lexical_rank"],
                 "dense_rank": None,
+                "graph_rank": None,
+                "structural_explanation": None,
                 "rrf_score": score,
                 "trust_zone": item["trust_zone"],
                 "project_id": item["project_id"],
@@ -448,10 +473,8 @@ class HybridSearchEngine:
             if key in fused_map:
                 fused_map[key]["dense_rank"] = item["dense_rank"]
                 fused_map[key]["rrf_score"] += score
-                # Enrich content_hash if missing
                 if not fused_map[key]["content_hash"]:
                     fused_map[key]["content_hash"] = item["content_hash"]
-                # Enrich epistemic metadata if missing
                 for meta_key in (
                     "promotion_state",
                     "conflict_state",
@@ -471,6 +494,8 @@ class HybridSearchEngine:
                     "snippet": item["snippet"],
                     "lexical_rank": None,
                     "dense_rank": item["dense_rank"],
+                    "graph_rank": None,
+                    "structural_explanation": None,
                     "rrf_score": score,
                     "trust_zone": item["trust_zone"],
                     "project_id": item["project_id"],
@@ -487,6 +512,43 @@ class HybridSearchEngine:
                     "recorded_until": item.get("recorded_until"),
                 }
 
+        # Process graph results
+        if graph_results:
+            for item in graph_results:
+                key = f"{item.target_type}:{item.target_id}"
+                score = (self.graph_weight) / (k + item.graph_rank)
+                if key in fused_map:
+                    fused_map[key]["graph_rank"] = item.graph_rank
+                    fused_map[key]["structural_explanation"] = item.structural_explanation
+                    fused_map[key]["rrf_score"] += score
+                    if not fused_map[key]["content_hash"] and item.content_hash:
+                        fused_map[key]["content_hash"] = item.content_hash
+                else:
+                    fused_map[key] = {
+                        "target_id": item.target_id,
+                        "target_type": item.target_type,
+                        "title": item.title,
+                        "snippet": item.snippet,
+                        "lexical_rank": None,
+                        "dense_rank": None,
+                        "graph_rank": item.graph_rank,
+                        "structural_explanation": item.structural_explanation,
+                        "rrf_score": score,
+                        "trust_zone": item.trust_zone,
+                        "project_id": item.project_id,
+                        "originating_event_id": item.originating_event_id,
+                        "content_hash": item.content_hash,
+                        "evidence_id": None,
+                        "source_id": None,
+                        "promotion_state": item.promotion_state,
+                        "conflict_state": item.conflict_state,
+                        "last_transition_event_id": None,
+                        "valid_from": None,
+                        "valid_until": None,
+                        "recorded_from": None,
+                        "recorded_until": None,
+                    }
+
         # Deterministic sort: rrf_score DESC, then target_id ASC
         sorted_items = sorted(
             fused_map.values(),
@@ -501,6 +563,8 @@ class HybridSearchEngine:
                 snippet=item["snippet"],
                 lexical_rank=item["lexical_rank"],
                 dense_rank=item["dense_rank"],
+                graph_rank=item.get("graph_rank"),
+                structural_explanation=item.get("structural_explanation"),
                 rrf_score=item["rrf_score"],
                 trust_zone=item["trust_zone"],
                 project_id=item["project_id"],

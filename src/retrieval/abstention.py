@@ -13,6 +13,8 @@ class AbstentionDecision:
     top_rrf_score: Optional[float]
     lexical_candidate_count: int
     dense_candidate_count: int
+    graph_candidate_count: int = 0
+    top_graph_score: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -76,10 +78,12 @@ class RetrievalAbstentionPolicy:
         lexical_results: List[dict[str, Any]],
         dense_results: List[dict[str, Any]],
         fused_results: List[Any],
+        graph_results: Optional[List[Any]] = None,
     ) -> AbstentionDecision:
         """Evaluate whether hybrid retrieval has sufficient evidence to answer."""
         lexical_count = len(lexical_results)
         dense_count = len(dense_results)
+        graph_count = len(graph_results) if graph_results else 0
 
         top_dense_similarity: Optional[float] = None
         if dense_results:
@@ -90,6 +94,10 @@ class RetrievalAbstentionPolicy:
         if fused_results:
             top_rrf_score = float(fused_results[0].rrf_score)
 
+        top_graph_score: Optional[float] = None
+        if graph_results:
+            top_graph_score = float(getattr(graph_results[0], "graph_score", graph_results[0].get("graph_score", 0.0)))
+
         if not self.enabled:
             return AbstentionDecision(
                 accepted=True,
@@ -98,6 +106,8 @@ class RetrievalAbstentionPolicy:
                 top_rrf_score=top_rrf_score,
                 lexical_candidate_count=lexical_count,
                 dense_candidate_count=dense_count,
+                graph_candidate_count=graph_count,
+                top_graph_score=top_graph_score,
             )
 
         if self.accept_on_lexical_candidate and lexical_count > 0:
@@ -108,6 +118,8 @@ class RetrievalAbstentionPolicy:
                 top_rrf_score=top_rrf_score,
                 lexical_candidate_count=lexical_count,
                 dense_candidate_count=dense_count,
+                graph_candidate_count=graph_count,
+                top_graph_score=top_graph_score,
             )
 
         if top_dense_similarity is None:
@@ -118,6 +130,8 @@ class RetrievalAbstentionPolicy:
                 top_rrf_score=top_rrf_score,
                 lexical_candidate_count=lexical_count,
                 dense_candidate_count=dense_count,
+                graph_candidate_count=graph_count,
+                top_graph_score=top_graph_score,
             )
 
         assert self.min_dense_similarity is not None
@@ -129,6 +143,8 @@ class RetrievalAbstentionPolicy:
                 top_rrf_score=top_rrf_score,
                 lexical_candidate_count=lexical_count,
                 dense_candidate_count=dense_count,
+                graph_candidate_count=graph_count,
+                top_graph_score=top_graph_score,
             )
 
         return AbstentionDecision(
@@ -138,4 +154,6 @@ class RetrievalAbstentionPolicy:
             top_rrf_score=top_rrf_score,
             lexical_candidate_count=lexical_count,
             dense_candidate_count=dense_count,
+            graph_candidate_count=graph_count,
+            top_graph_score=top_graph_score,
         )
