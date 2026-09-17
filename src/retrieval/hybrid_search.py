@@ -1,4 +1,5 @@
 import hashlib
+import json
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 import psycopg2
@@ -72,6 +73,7 @@ class HybridSearchEngine:
         dimension = self.provider.dimension
         corpus_version = self.provider.corpus_version
         index_version = self.provider.index_version
+        normalization_config = self.provider.normalization_config
         conn = psycopg2.connect(self.db_url, cursor_factory=RealDictCursor)
         conn.autocommit = False
 
@@ -91,7 +93,7 @@ class HybridSearchEngine:
                 # 3. Retrieve Dense Vector Candidates via neural_vectors + neural_nodes / neural_evidence
                 # Cosine distance: embedding <=> query_vec
                 query_vec = self.provider.generate_embedding(query)
-                provenance_id = self._resolve_compatible_provenance(cur, provider_id, active_model_id, model_version, dimension, corpus_version, index_version)
+                provenance_id = self._resolve_compatible_provenance(cur, provider_id, active_model_id, model_version, dimension, corpus_version, index_version, normalization_config)
                 dense_results = self._retrieve_dense(cur, query_vec, active_model_id, provenance_id, trust_zone, project_id)
 
                 # 4. Perform Reciprocal Rank Fusion (RRF)
@@ -128,13 +130,13 @@ class HybridSearchEngine:
         active_model_id = model_id or self.provider.model_id
         try:
             with conn.cursor() as cur:
-                provenance_id = self._resolve_compatible_provenance(cur, self.provider.provider_id, active_model_id, self.provider.model_version, self.provider.dimension, self.provider.corpus_version, self.provider.index_version)
+                provenance_id = self._resolve_compatible_provenance(cur, self.provider.provider_id, active_model_id, self.provider.model_version, self.provider.dimension, self.provider.corpus_version, self.provider.index_version, self.provider.normalization_config)
                 query_vec = self.provider.generate_embedding(query)
                 return self._retrieve_dense(cur, query_vec, active_model_id, provenance_id, trust_zone, project_id)
         finally:
             conn.close()
 
-    def _resolve_compatible_provenance(self, cur, provider: str, model: str, model_version: Optional[str], dimension: int, corpus_version: str, index_version: str) -> str:
+    def _resolve_compatible_provenance(self, cur, provider: str, model: str, model_version: Optional[str], dimension: int, corpus_version: str, index_version: str, normalization_config: Dict[str, Any]) -> str:
         cur.execute("""SELECT id FROM pub_neural.embedding_provenance WHERE status='ACTIVE' AND provider=%s AND model=%s AND model_version IS NOT DISTINCT FROM %s AND dimension=%s AND corpus_version=%s AND index_version=%s ORDER BY created_at DESC LIMIT 1;""",(provider,model,model_version,dimension,corpus_version,index_version))
         row=cur.fetchone()
         if not row: raise RuntimeError("Dense retrieval blocked: no ACTIVE compatible embedding provenance.")
