@@ -336,9 +336,23 @@ Treat documented architecture as intent, not proof of implementation.
 
 Role: rapid interface/product prototyping environment.
 
-Verified context state: `EM DEV / GITHUB`, priority `HIGH`.
+Verified context state: `VALIDATED / PRODUCTION`, priority `HIGH`.
 
 **PP must remain isolated from PDL.** Neural may know both, but every knowledge item must retain project scope.
+
+#### Validated Milestone: Sovereign Dual Gateway V1 (2026-09-17)
+- **Architecture:** Dual Gateway inference routing (`GatewayRouter`) across Gateway A (**OpenRouter**) and Gateway B (**9router Cloud**).
+- **Governance:** `100% FREE MODELS ONLY` — `PAID_MODEL_EXECUTION = FORBIDDEN` enforced as a hard gate before any network request. Zero paid execution path, zero paid fallbacks, zero paid overrides.
+- **Operational Status:**
+  - OpenRouter: 10 live-verified FREE models (Streaming PASS).
+  - 9router Cloud (`https://pub-9router-cloud.onrender.com/v1`): 10 live-verified FREE models (Streaming PASS).
+  - Total Verified FREE: 20 models.
+  - Cross-Gateway Fallback: Bidirectional ($A \to B$ e $B \to A$) orquestrado pelo `GatewayRouter` e validado ao vivo.
+  - Infraestrutura 9router: Saneamento de segredos persistido no repositório `pubcoreagencia/pub-9router-cloud` (commit `4d73331`).
+  - Implementação PP: Commit `61b91cd`, 63 test files, 428 testes unitários passando.
+  - Smoke de Produção: Validado em execução real ponta a ponta no Railway Worker com persistência de commit e checkpoint.
+- **Detailed Institutional Document:** [docs/architecture/PUB_PROTOTYPE_DUAL_GATEWAY_V1_HANDOFF.md](file:///Users/user/Documents/antigravity/pub%20neural/docs/architecture/PUB_PROTOTYPE_DUAL_GATEWAY_V1_HANDOFF.md)
+
 
 ### PUB NEURAL
 `pubcoreagencia/pub-neural`

@@ -18,7 +18,7 @@ Never interpret `NOT_HARVESTED` as `NOT_EXISTING`.
 | `pubcoreagencia/pub-dev-loop` | Autonomous engineering platform / THE OFFICE | verified by source | critical | `MASTER_CONTEXT.md` | CONSOLIDATED |
 | `pubcoreagencia/pub-ecom` | Commerce operator / marketplace foundation | COMPLETE / VERIFIED / FROZEN (per source) | high | `MASTER_CONTEXT.md` | CONSOLIDATED |
 | `pubcoreagencia/pub-machine` | Automated prospecting / business generation | IDEA / DESIGN | high | `MASTER_CONTEXT.md` | CONSOLIDATED |
-| `pubcoreagencia/pub-prototype` | Rapid product/interface prototyping | EM DEV / GITHUB | high | `MASTER_CONTEXT.md` | CONSOLIDATED |
+| `pubcoreagencia/pub-prototype` | Rapid product/interface prototyping | VALIDATED / PRODUCTION | high | `MASTER_CONTEXT.md` | CONSOLIDATED |
 | `pubcoreagencia/pub-core-os` | Institutional operating system / governance | EM DEV / GITHUB | CRITICAL | `MASTER_CONTEXT.md` | CONSOLIDATED |
 | `pubcoreagencia/pub-records` | Music / label / studio / beats | ONLINE / GITHUB | high | `MASTER_CONTEXT.md` | CONSOLIDATED |
 | `pubcoreagencia/pub-leads` | B2B prospecting / CRM / pipeline | source verified | — | `MASTER_CONTEXT.md` | CONSOLIDATED |
