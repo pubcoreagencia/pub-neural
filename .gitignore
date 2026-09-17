@@ -10,3 +10,4 @@ temp_*
 .env
 .env.*
 .wrangler/
+node_modules/
