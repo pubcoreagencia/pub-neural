@@ -332,6 +332,44 @@ export function OverviewView({
             >
               Projetores: {data?.projector_health === "HEALTHY" ? "SAUDÁVEL" : data?.projector_health === "DEGRADED" ? "DEGRADADO" : data?.projector_health || "DESCONHECIDO"}
             </div>
+
+            {/* Continuous Repository Observation Telemetry Badge (V0.5) */}
+            <div
+              style={{
+                fontSize: "11px",
+                padding: "4px 8px",
+                borderRadius: "4px",
+                backgroundColor:
+                  data?.observation_sync_telemetry?.status === "COMPLETED"
+                    ? "rgba(56, 189, 248, 0.12)"
+                    : data?.observation_sync_telemetry?.status === "FAILED"
+                    ? "rgba(239, 68, 68, 0.15)"
+                    : "rgba(148, 163, 184, 0.15)",
+                color:
+                  data?.observation_sync_telemetry?.status === "COMPLETED"
+                    ? "#38bdf8"
+                    : data?.observation_sync_telemetry?.status === "FAILED"
+                    ? "#f87171"
+                    : "#94a3b8",
+                border: `1px solid ${
+                  data?.observation_sync_telemetry?.status === "COMPLETED"
+                    ? "rgba(56, 189, 248, 0.3)"
+                    : data?.observation_sync_telemetry?.status === "FAILED"
+                    ? "rgba(239, 68, 68, 0.3)"
+                    : "rgba(148, 163, 184, 0.3)"
+                }`,
+                fontFamily: "monospace",
+              }}
+              title={
+                data?.observation_sync_telemetry
+                  ? `Última sincronização: ${data.observation_sync_telemetry.last_sync_at || "N/A"}\nRepositórios: ${data.observation_sync_telemetry.repositories_scanned}\nNovos sinais: ${data.observation_sync_telemetry.observations_created}\nFalhas: ${data.observation_sync_telemetry.observations_failed}`
+                  : "Nenhuma sincronização registrada"
+              }
+            >
+              Observação Repositórios: {data?.observation_sync_telemetry
+                ? `${data.observation_sync_telemetry.repositories_scanned} repos | +${data.observation_sync_telemetry.observations_created} sinais | ${data.observation_sync_telemetry.observations_failed} falhas`
+                : "AGUARDANDO SYNC"}
+            </div>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>

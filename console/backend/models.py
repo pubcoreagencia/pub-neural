@@ -548,6 +548,18 @@ class DailyActivityBucketDTO:
 
 
 @dataclass(frozen=True)
+class ObservationSyncTelemetryDTO:
+    last_sync_at: Optional[str] = None
+    repositories_scanned: int = 0
+    observations_created: int = 0
+    observations_failed: int = 0
+    status: str = "UNKNOWN"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class OverviewResponseDTO:
     generated_at: str
     window_days: int
@@ -557,6 +569,7 @@ class OverviewResponseDTO:
     daily_activity: List[DailyActivityBucketDTO]
     executive_summary: Optional[ExecutiveSummaryDTO] = None
     holding_projects: Optional[List[HoldingProjectItemDTO]] = None
+    observation_sync_telemetry: Optional[ObservationSyncTelemetryDTO] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -568,4 +581,6 @@ class OverviewResponseDTO:
             "daily_activity": [b.to_dict() for b in self.daily_activity],
             "executive_summary": self.executive_summary.to_dict() if self.executive_summary else None,
             "holding_projects": [hp.to_dict() for hp in self.holding_projects] if self.holding_projects else None,
+            "observation_sync_telemetry": self.observation_sync_telemetry.to_dict() if self.observation_sync_telemetry else None,
         }
+

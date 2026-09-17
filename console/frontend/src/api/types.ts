@@ -362,6 +362,14 @@ export interface DailyActivityBucketDTO {
   observed_count: number;
 }
 
+export interface ObservationSyncTelemetryDTO {
+  last_sync_at: string | null;
+  repositories_scanned: number;
+  observations_created: number;
+  observations_failed: number;
+  status: string;
+}
+
 export interface OverviewResponseDTO {
   generated_at: string;
   window_days: number;
@@ -371,6 +379,7 @@ export interface OverviewResponseDTO {
   daily_activity: DailyActivityBucketDTO[];
   executive_summary?: ExecutiveSummaryDTO | null;
   holding_projects?: HoldingProjectItemDTO[] | null;
+  observation_sync_telemetry?: ObservationSyncTelemetryDTO | null;
 }
 
 export interface CandidateReviewDTO {

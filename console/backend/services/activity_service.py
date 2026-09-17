@@ -15,6 +15,7 @@ from console.backend.models import (
     ExecutiveSummaryDTO,
     GovernanceReviewResponseDTO,
     LatestSignalDTO,
+    ObservationSyncTelemetryDTO,
     OverviewProjectDTO,
     OverviewResponseDTO,
     ProjectRegistryItemDTO,
@@ -300,6 +301,9 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
                 'REPOSITORY_OBSERVED' AS signal_type,
                 obs.observed_at AS sig_timestamp,
                 CASE
+                    WHEN obs.event_type = 'PULL_REQUEST' THEN
+                        'Pull Request #' || COALESCE(obs.details->>'pull_request_number', '') ||
+                        CASE WHEN obs.details->>'title' IS NOT NULL THEN ': ' || (obs.details->>'title') ELSE '' END
                     WHEN obs.sha IS NOT NULL AND obs.ref IS NOT NULL THEN 'Observed commit ' || substring(obs.sha from 1 for 7) || ' on branch ' || obs.ref
                     WHEN obs.sha IS NOT NULL THEN 'Observed commit ' || substring(obs.sha from 1 for 7)
                     WHEN obs.ref IS NOT NULL THEN 'Observed branch ' || obs.ref
@@ -585,6 +589,33 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
         projects_with_activity_7d_count=projects_with_activity_7d,
     )
 
+    # 10. Query latest Observation Sync Run Telemetry
+    obs_sync_dto = None
+    try:
+        cur.execute("SAVEPOINT sp_obs_sync_telemetry;")
+        cur.execute("""
+            SELECT started_at, completed_at, status, repositories_scanned,
+                   observations_created, observations_failed
+            FROM pub_neural.observation_sync_runs
+            ORDER BY started_at DESC
+            LIMIT 1;
+        """)
+        sync_row = cur.fetchone()
+        if sync_row:
+            obs_sync_dto = ObservationSyncTelemetryDTO(
+                last_sync_at=serialize_val(sync_row.get("completed_at") or sync_row.get("started_at")),
+                repositories_scanned=int(sync_row.get("repositories_scanned") or 0),
+                observations_created=int(sync_row.get("observations_created") or 0),
+                observations_failed=int(sync_row.get("observations_failed") or 0),
+                status=sync_row.get("status") or "UNKNOWN",
+            )
+        cur.execute("RELEASE SAVEPOINT sp_obs_sync_telemetry;")
+    except Exception:
+        try:
+            cur.execute("ROLLBACK TO SAVEPOINT sp_obs_sync_telemetry;")
+        except Exception:
+            pass
+
     return OverviewResponseDTO(
         generated_at=now_utc.isoformat(),
         window_days=clamped_window,
@@ -594,7 +625,9 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
         daily_activity=daily_buckets,
         executive_summary=exec_summary,
         holding_projects=holding_projects_dto,
+        observation_sync_telemetry=obs_sync_dto,
     )
+
 
 
 def get_governance_review_data(cur) -> GovernanceReviewResponseDTO:
@@ -697,6 +730,9 @@ def get_activity_signals(
                 obs.observed_at AS timestamp,
                 'neural_repository_observations' AS source,
                 CASE
+                    WHEN obs.event_type = 'PULL_REQUEST' THEN
+                        'Pull Request #' || COALESCE(obs.details->>'pull_request_number', '') ||
+                        CASE WHEN obs.details->>'title' IS NOT NULL THEN ': ' || (obs.details->>'title') ELSE '' END
                     WHEN obs.sha IS NOT NULL AND obs.ref IS NOT NULL THEN 'Observed commit ' || substring(obs.sha from 1 for 7) || ' on branch ' || obs.ref
                     WHEN obs.sha IS NOT NULL THEN 'Observed commit ' || substring(obs.sha from 1 for 7)
                     WHEN obs.ref IS NOT NULL THEN 'Observed branch ' || obs.ref
