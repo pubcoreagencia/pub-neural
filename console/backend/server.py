@@ -54,9 +54,11 @@ from console.backend.services.graph_service import (
 from console.backend.services.git_graph_service import (
     get_git_topology,
     get_git_node_detail,
+    get_git_edge_detail,
     get_organization_graph,
     fetch_organization_repos,
 )
+from console.backend.services.unified_graph_service import get_unified_graph
 from console.backend.services.search_service import execute_console_search
 from console.backend.services.status_service import get_system_status
 from console.backend.services.timeline_service import get_event_detail, get_events_list
@@ -325,6 +327,33 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(200, git_graph.to_dict())
                 return
 
+            # 2c3. Unified Graph Projection endpoint: /api/v1/graph/unified
+            if path == "/api/v1/graph/unified":
+                limit_param = int(params.get("limit", [120])[0])
+                source_param = params.get("source", ["all"])[0]
+                trust_zone_param = params.get("trust_zone", [None])[0]
+                project_param = params.get("project_id", [None])[0]
+                repo_filter = params.get("repository", [None])[0]
+                entity_type_filter = params.get("entity_type", [None])[0]
+                relation_type_filter = params.get("relation_type", [None])[0]
+                epistemic_filter = params.get("epistemic_state", [None])[0]
+
+                # Public read-only connection without mandatory bearer token for unified exploration
+                with get_readonly_connection(self.server_config.db_url, enforce_auth=False) as cur:
+                    unified_graph = get_unified_graph(
+                        cur=cur,
+                        source=source_param,
+                        trust_zone=trust_zone_param,
+                        project_id=project_param,
+                        limit=limit_param,
+                        repository_filter=repo_filter,
+                        entity_type_filter=entity_type_filter,
+                        relation_type_filter=relation_type_filter,
+                        epistemic_filter=epistemic_filter,
+                    )
+                self._send_json(200, unified_graph.to_dict())
+                return
+
             # 2d. Git Entity Detail check for public topology nodes
             match_git_entity = re.match(r"^/api/v1/entities/((?:org|repo|dir|file|commit):.+)$", path)
             if match_git_entity:
@@ -332,6 +361,15 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                 git_detail = get_git_node_detail(entity_id)
                 if git_detail:
                     self._send_json(200, git_detail)
+                    return
+
+            # 2e. Git Edge Detail check for public/git edges (starting with 'edge:')
+            match_git_edge = re.match(r"^/api/v1/edges/(edge:.+)$", path)
+            if match_git_edge:
+                edge_id = match_git_edge.group(1)
+                git_edge_detail = get_git_edge_detail(edge_id)
+                if git_edge_detail:
+                    self._send_json(200, git_edge_detail.to_dict())
                     return
 
             # All remaining endpoints require Authorization: Bearer <token>
@@ -594,6 +632,11 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
             match_edge = re.match(r"^/api/v1/edges/([^/]+)$", path)
             if match_edge:
                 edge_id = match_edge.group(1)
+                if edge_id.startswith("edge:"):
+                    git_edge_dto = get_git_edge_detail(edge_id)
+                    if git_edge_dto:
+                        self._send_json(200, git_edge_dto.to_dict())
+                        return
                 with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
                     edge_dto = get_edge_detail(cur, edge_id)
                     if not edge_dto:

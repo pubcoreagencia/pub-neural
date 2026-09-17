@@ -168,6 +168,29 @@ export const NeuralAPI = {
     return fetchApi<GraphResponseDTO>(`/graph/backbone${qs ? `?${qs}` : ""}`);
   },
 
+  async getUnifiedGraph(params?: {
+    source?: "all" | "git" | "cognitive";
+    limit?: number;
+    projectId?: string;
+    trustZone?: string;
+    repository?: string;
+    entityType?: string;
+    relationType?: string;
+    epistemicState?: string;
+  }): Promise<GraphResponseDTO> {
+    const searchParams = new URLSearchParams();
+    if (params?.source) searchParams.set("source", params.source);
+    if (params?.limit !== undefined) searchParams.set("limit", String(params.limit));
+    if (params?.projectId) searchParams.set("project_id", params.projectId);
+    if (params?.trustZone) searchParams.set("trust_zone", params.trustZone);
+    if (params?.repository) searchParams.set("repository", params.repository);
+    if (params?.entityType) searchParams.set("entity_type", params.entityType);
+    if (params?.relationType) searchParams.set("relation_type", params.relationType);
+    if (params?.epistemicState) searchParams.set("epistemic_state", params.epistemicState);
+    const qs = searchParams.toString();
+    return fetchApi<GraphResponseDTO>(`/graph/unified${qs ? `?${qs}` : ""}`);
+  },
+
   async getRepositoryGraph(params?: {
     repository?: string;
     branch?: string;

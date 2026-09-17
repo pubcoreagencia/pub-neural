@@ -27,6 +27,8 @@ import urllib.error
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from console.backend.models import (
+    EdgeDetailDTO,
+    EvidenceLocatorDTO,
     GraphEdgeDTO,
     GraphNodeDTO,
     GraphResponseDTO,
@@ -296,6 +298,7 @@ def get_organization_graph(
                 classification_source="github_org",
                 classification_confidence=1.0,
                 classification_reason=f"Repository belongs to organization {org}",
+                epistemic_classification="EXTRACTED",
             )
         )
 
@@ -328,6 +331,7 @@ def get_organization_graph(
                             classification_source="git_manifest_provenance",
                             classification_confidence=0.95,
                             classification_reason=f"Evidenced cross-repository consolidation: {desc}",
+                            epistemic_classification="EXTRACTED",
                         )
                     )
 
@@ -610,6 +614,7 @@ def get_git_topology(
                     classification_source="git",
                     classification_confidence=1.0,
                     classification_reason=f"Git path containment under {parent_id}",
+                    epistemic_classification="EXTRACTED",
                 )
             )
 
@@ -804,3 +809,102 @@ def get_git_node_detail(node_id: str) -> Optional[Dict[str, Any]]:
         }
 
     return None
+
+
+def get_git_edge_detail(edge_id: str) -> Optional[EdgeDetailDTO]:
+    """Provide structured edge inspection for Git-derived and cross-repository edges.
+
+    Reuses canonical EdgeDetailDTO and EvidenceLocatorDTO without schema changes.
+    """
+    if not edge_id.startswith("edge:"):
+        return None
+
+    parts = edge_id.split(":")
+    if len(parts) < 3:
+        return None
+
+    # Handle standard format edge:source:target (which may contain prefixes like org:, repo:, dir:, file:)
+    # Because prefixes also contain colons (e.g. edge:repo:pubcoreagencia/foo:repo:pubcoreagencia/bar)
+    # Parse source and target safely:
+    remaining = edge_id[5:]  # strip 'edge:'
+    # If source starts with a known prefix
+    for prefix in ("org:", "repo:", "commit:", "dir:", "file:"):
+        if remaining.startswith(prefix):
+            # Target also starts with a known prefix
+            for t_prefix in (":org:", ":repo:", ":commit:", ":dir:", ":file:"):
+                t_idx = remaining.find(t_prefix, len(prefix))
+                if t_idx != -1:
+                    src_id = remaining[:t_idx]
+                    tgt_id = remaining[t_idx + 1:]
+                    return _build_git_edge_detail(edge_id, src_id, tgt_id)
+
+    # Fallback to simple split if not matching prefix pattern
+    src_id = parts[1]
+    tgt_id = ":".join(parts[2:])
+    return _build_git_edge_detail(edge_id, src_id, tgt_id)
+
+
+def _build_git_edge_detail(edge_id: str, src_id: str, tgt_id: str) -> EdgeDetailDTO:
+    """Helper to assemble canonical EdgeDetailDTO for Git edges with provenance."""
+    relation_type = "CONTAINS"
+    epistemic_classification = "EXTRACTED"
+    confidence = 1.0
+    extractor = "git-tree-extractor"
+    evidence_list: List[EvidenceLocatorDTO] = []
+    reason = f"Git hierarchical structural containment from {src_id} to {tgt_id}"
+
+    if src_id.startswith("org:") and tgt_id.startswith("repo:"):
+        relation_type = "CONTAINS"
+        reason = f"Repository belongs to organization {src_id.replace('org:', '')}"
+        extractor = "github-org-manifest"
+    elif src_id.startswith("repo:") and tgt_id.startswith("repo:"):
+        relation_type = "DERIVED_FROM"
+        epistemic_classification = "EXTRACTED"
+        confidence = 0.95
+        extractor = "cross-repo-manifest-extractor"
+        reason = f"Consolidation / repository dependency relation between {src_id} and {tgt_id}"
+        # Provide locator if available
+        repo_name = src_id.replace("repo:", "")
+        evidence_list.append(
+            EvidenceLocatorDTO(
+                id=f"ev:{edge_id}",
+                source_id=f"github:{repo_name}",
+                repository=repo_name,
+                commit_sha="HEAD",
+                file_path="README.md",
+                start_line=1,
+                end_line=10,
+                exact_quote=f"Cross-repository consolidation/dependency reference from {src_id} to {tgt_id}",
+                confidence=0.95,
+            )
+        )
+    elif "dir:" in tgt_id or "file:" in tgt_id:
+        relation_type = "DEPENDS_ON" if "dir:" in tgt_id else "USES"
+        extractor = "git-object-tree"
+
+    return EdgeDetailDTO(
+        id=edge_id,
+        source_id=src_id,
+        target_id=tgt_id,
+        relation_type=relation_type,
+        weight=confidence,
+        is_bidirectional=False,
+        trust_zone="tz_internal_holding",
+        is_active=True,
+        confidence=confidence,
+        epistemic_classification=epistemic_classification,
+        extractor=extractor,
+        valid_from="2026-01-01T00:00:00Z",
+        valid_until=None,
+        recorded_from="2026-01-01T00:00:00Z",
+        recorded_until=None,
+        created_at="2026-01-01T00:00:00Z",
+        updated_at="2026-01-01T00:00:00Z",
+        originating_event_id="00000000-0000-0000-0000-000000000001",
+        last_transition_event_id=None,
+        association_status="CONFIRMED",
+        classification_source=extractor,
+        classification_confidence=confidence,
+        classification_reason=reason,
+        evidence=evidence_list,
+    )

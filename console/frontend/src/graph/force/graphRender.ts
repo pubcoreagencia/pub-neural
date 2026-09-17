@@ -111,10 +111,12 @@ export function renderCanvasLink(
   const isHovered = !!link.isHovered;
   const isDimmed = !!link.isDimmed;
   const isContradiction = link.relation_type === "CONTRADICTS";
-  const isInferred = link.association_status === "PROPOSED" || link.relation_type === "RELATED_TO";
+  const isBridge = link.relation_type === "IMPLEMENTS" || link.relation_type === "VALIDATED_BY";
+  const isProposed = link.epistemic_classification === "PROPOSED" || link.association_status === "PROPOSED";
+  const isInferred = link.epistemic_classification === "INFERRED" || link.relation_type === "RELATED_TO";
 
   ctx.save();
-  ctx.globalAlpha = isDimmed ? 0.15 : isSelected || isHovered ? 0.95 : 0.45;
+  ctx.globalAlpha = isDimmed ? 0.15 : isSelected || isHovered ? 0.95 : isBridge ? 0.75 : 0.45;
 
   ctx.beginPath();
   ctx.moveTo(source.x, source.y!);
@@ -124,10 +126,19 @@ export function renderCanvasLink(
     ctx.strokeStyle = "#ef4444";
     ctx.lineWidth = (isSelected || isHovered ? 2.5 : 1.8) / Math.max(globalScale * 0.8, 1);
     ctx.setLineDash([]);
+  } else if (isProposed) {
+    ctx.strokeStyle = isSelected || isHovered ? "#fbbf24" : "#b45309";
+    ctx.lineWidth = (isSelected || isHovered ? 2.0 : 1.2) / Math.max(globalScale * 0.8, 1);
+    ctx.setLineDash([2 / globalScale, 3 / globalScale]);
   } else if (isInferred) {
     ctx.strokeStyle = isSelected || isHovered ? "#38bdf8" : "#94a3b8";
     ctx.lineWidth = (isSelected || isHovered ? 2.0 : 1.2) / Math.max(globalScale * 0.8, 1);
     ctx.setLineDash([4 / globalScale, 4 / globalScale]);
+  } else if (isBridge) {
+    // Distinct cyan/emerald bridge styling for physical-cognitive connections
+    ctx.strokeStyle = isSelected || isHovered ? "#38bdf8" : "#0ea5e9";
+    ctx.lineWidth = (isSelected || isHovered ? 2.5 : 1.6) / Math.max(globalScale * 0.8, 1);
+    ctx.setLineDash([]);
   } else {
     ctx.strokeStyle = isSelected || isHovered ? "#38bdf8" : "#475569";
     ctx.lineWidth = (isSelected || isHovered ? 2.2 : 1.2) / Math.max(globalScale * 0.8, 1);

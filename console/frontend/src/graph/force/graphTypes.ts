@@ -28,6 +28,8 @@ export interface ForceLinkObject {
   classification_source?: string | null;
   classification_confidence?: number | null;
   classification_reason?: string | null;
+  epistemic_classification?: "EXTRACTED" | "INFERRED" | "PROPOSED" | string | null;
+  evidence_locator?: any;
   isSelected?: boolean;
   isHovered?: boolean;
   isDimmed?: boolean;
@@ -39,7 +41,7 @@ export interface GraphFilterCriteria {
   relationTypes: string[];
   projectScope: string;
   trustZone: string;
-  epistemicState: "ALL" | "CONFIRMED" | "PROPOSED";
+  epistemicState: "ALL" | "EXTRACTED" | "INFERRED" | "PROPOSED" | "CONFIRMED";
 }
 
 export const ENTITY_COLORS: Record<string, { bg: string; border: string; text: string; badge: string }> = {

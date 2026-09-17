@@ -161,14 +161,37 @@ export function EdgeInspector({ edgeId, onNavigateEntity, onClose }: EdgeInspect
         </div>
       </div>
 
+      {/* Classification Reason / Provenance */}
+      {edge.classification_reason && (
+        <div style={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: 6, padding: 10, marginBottom: 14 }}>
+          <div style={{ fontSize: "0.7rem", color: "#94a3b8", textTransform: "uppercase", fontWeight: 700, marginBottom: 4 }}>
+            Grounding Rationale & Provenance
+          </div>
+          <div style={{ fontSize: "0.8rem", color: "#e2e8f0" }}>
+            {edge.classification_reason}
+          </div>
+        </div>
+      )}
+
       {/* Grounded Evidence Locators */}
-      <div style={{ marginTop: 8 }}>
+      <div style={{ marginTop: 4 }}>
         <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 8 }}>
           Grounded Evidence ({edge.evidence.length})
         </div>
         {edge.evidence.length === 0 ? (
-          <div style={{ fontSize: "0.8rem", color: "#64748b", fontStyle: "italic" }}>
-            No direct code slice attached to this edge.
+          <div
+            style={{
+              fontSize: "0.8rem",
+              color: "#fbbf24",
+              backgroundColor: "#2a1e12",
+              border: "1px dashed #f59e0b",
+              borderRadius: 6,
+              padding: 10,
+              fontFamily: "monospace",
+              textAlign: "center",
+            }}
+          >
+            NO VERIFIED EVIDENCE
           </div>
         ) : (
           edge.evidence.map((ev) => (
@@ -184,22 +207,29 @@ export function EdgeInspector({ edgeId, onNavigateEntity, onClose }: EdgeInspect
               }}
             >
               <div style={{ color: "#38bdf8", fontWeight: 600, marginBottom: 4 }}>
-                {ev.file_path || "Source Blob"} (L{ev.start_line}–L{ev.end_line})
+                {ev.repository ? `${ev.repository} • ` : ""}{ev.file_path || "Source Blob"} {ev.start_line ? `(L${ev.start_line}–L${ev.end_line})` : ""}
               </div>
-              <pre
-                style={{
-                  margin: 0,
-                  padding: "6px 8px",
-                  backgroundColor: "#1e293b",
-                  borderRadius: 4,
-                  fontSize: "0.75rem",
-                  color: "#e2e8f0",
-                  whiteSpace: "pre-wrap",
-                  fontFamily: "monospace",
-                }}
-              >
-                {ev.exact_quote}
-              </pre>
+              {ev.commit_sha && (
+                <div style={{ fontSize: "0.7rem", color: "#64748b", marginBottom: 4, fontFamily: "monospace" }}>
+                  Commit: {ev.commit_sha}
+                </div>
+              )}
+              {ev.exact_quote && (
+                <pre
+                  style={{
+                    margin: 0,
+                    padding: "6px 8px",
+                    backgroundColor: "#1e293b",
+                    borderRadius: 4,
+                    fontSize: "0.75rem",
+                    color: "#e2e8f0",
+                    whiteSpace: "pre-wrap",
+                    fontFamily: "monospace",
+                  }}
+                >
+                  {ev.exact_quote}
+                </pre>
+              )}
             </div>
           ))
         )}

@@ -31,8 +31,8 @@ export function GraphCanvasForce({
   // Hover state
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
-  // View Source Mode: "git" (Source of Truth pubcore@main) or "backbone" (Institutional Cognitive Backbone)
-  const [sourceMode, setSourceMode] = useState<"git" | "backbone">("git");
+  // View Source Mode: "unified" (Physical + Cognitive), "git" (Physical 55 Repos), or "backbone" (Institutional Cognitive)
+  const [sourceMode, setSourceMode] = useState<"unified" | "git" | "backbone">("unified");
 
   // Filters state
   const [filters, setFilters] = useState<GraphFilterCriteria>({
@@ -44,7 +44,33 @@ export function GraphCanvasForce({
     epistemicState: "ALL",
   });
 
-  // 1a. Load Canonical Git Topology: PUB Core Holding (All 55 Repositories)
+  // 1a. Load Unified Physical + Cognitive Graph (Holding 55 Repos + Cognitive Backbone + Evidence Bridges)
+  const loadUnifiedGraph = useCallback(async () => {
+    setLoading(true);
+    setLoadingStatus("Connecting Physical Codebase (55 Repos) + Institutional Memory...");
+    setError(null);
+    try {
+      const data: GraphResponseDTO = await NeuralAPI.getUnifiedGraph({
+        source: "all",
+        limit: 120,
+      });
+      const nodes: ForceNodeObject[] = data.nodes.map((n) => ({ ...n }));
+      const links: ForceLinkObject[] = data.edges.map((e) => ({
+        ...e,
+        source: e.source_id,
+        target: e.target_id,
+      }));
+      setRawNodes(nodes);
+      setRawLinks(links);
+    } catch (e: any) {
+      console.error("Failed to load unified graph", e);
+      setError(e.message || "Failed to load unified graph.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // 1b. Load Canonical Git Topology: PUB Core Holding (All 55 Repositories)
   const loadGitTopology = useCallback(async () => {
     setLoading(true);
     setLoadingStatus("Traversing PUB Core Holding (55 repositories)...");
@@ -70,7 +96,7 @@ export function GraphCanvasForce({
     }
   }, []);
 
-  // 1b. Load Institutional Backbone
+  // 1c. Load Institutional Backbone
   const loadBackbone = useCallback(async () => {
     setLoading(true);
     setLoadingStatus("Traversing Institutional Backbone...");
@@ -94,12 +120,14 @@ export function GraphCanvasForce({
   }, []);
 
   useEffect(() => {
-    if (sourceMode === "git") {
+    if (sourceMode === "unified") {
+      loadUnifiedGraph();
+    } else if (sourceMode === "git") {
       loadGitTopology();
     } else {
       loadBackbone();
     }
-  }, [sourceMode, loadGitTopology, loadBackbone]);
+  }, [sourceMode, loadUnifiedGraph, loadGitTopology, loadBackbone]);
 
   // 2. Incremental Expansion on click, double click or manual trigger
   const expandNode = useCallback(
@@ -369,6 +397,23 @@ export function GraphCanvasForce({
           >
             <button
               type="button"
+              onClick={() => setSourceMode("unified")}
+              style={{
+                padding: "4px 10px",
+                backgroundColor: sourceMode === "unified" ? "#0284c7" : "transparent",
+                color: sourceMode === "unified" ? "#ffffff" : "#94a3b8",
+                border: "none",
+                borderRadius: 4,
+                fontSize: "0.72rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Unified 🧠🌲
+            </button>
+            <button
+              type="button"
               onClick={() => setSourceMode("git")}
               style={{
                 padding: "4px 10px",
@@ -426,7 +471,7 @@ export function GraphCanvasForce({
 
           <button
             type="button"
-            onClick={sourceMode === "git" ? loadGitTopology : loadBackbone}
+            onClick={sourceMode === "unified" ? loadUnifiedGraph : sourceMode === "git" ? loadGitTopology : loadBackbone}
             disabled={loading}
             style={{
               padding: "6px 12px",

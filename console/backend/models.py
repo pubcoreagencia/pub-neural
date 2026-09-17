@@ -58,6 +58,8 @@ class GraphEdgeDTO:
     classification_source: Optional[str] = None
     classification_confidence: Optional[float] = None
     classification_reason: Optional[str] = None
+    epistemic_classification: Optional[str] = None
+    evidence_locator: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
