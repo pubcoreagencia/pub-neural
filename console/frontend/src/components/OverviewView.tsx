@@ -333,43 +333,63 @@ export function OverviewView({
               Projetores: {data?.projector_health === "HEALTHY" ? "SAUDÁVEL" : data?.projector_health === "DEGRADED" ? "DEGRADADO" : data?.projector_health || "DESCONHECIDO"}
             </div>
 
-            {/* Continuous Repository Observation Telemetry Badge (V0.5) */}
-            <div
-              style={{
-                fontSize: "11px",
-                padding: "4px 8px",
-                borderRadius: "4px",
-                backgroundColor:
-                  data?.observation_sync_telemetry?.status === "COMPLETED"
-                    ? "rgba(56, 189, 248, 0.12)"
-                    : data?.observation_sync_telemetry?.status === "FAILED"
-                    ? "rgba(239, 68, 68, 0.15)"
-                    : "rgba(148, 163, 184, 0.15)",
-                color:
-                  data?.observation_sync_telemetry?.status === "COMPLETED"
-                    ? "#38bdf8"
-                    : data?.observation_sync_telemetry?.status === "FAILED"
-                    ? "#f87171"
-                    : "#94a3b8",
-                border: `1px solid ${
-                  data?.observation_sync_telemetry?.status === "COMPLETED"
-                    ? "rgba(56, 189, 248, 0.3)"
-                    : data?.observation_sync_telemetry?.status === "FAILED"
-                    ? "rgba(239, 68, 68, 0.3)"
-                    : "rgba(148, 163, 184, 0.3)"
-                }`,
-                fontFamily: "monospace",
-              }}
-              title={
-                data?.observation_sync_telemetry
-                  ? `Última sincronização: ${data.observation_sync_telemetry.last_sync_at || "N/A"}\nRepositórios: ${data.observation_sync_telemetry.repositories_scanned}\nNovos sinais: ${data.observation_sync_telemetry.observations_created}\nFalhas: ${data.observation_sync_telemetry.observations_failed}`
-                  : "Nenhuma sincronização registrada"
+            {/* Continuous Repository Observation Telemetry Badge (V0.5.1 Hardened) */}
+            {(() => {
+              const tel = data?.observation_sync_telemetry;
+              const status = tel?.status || "NO_DATA";
+
+              let bg = "rgba(148, 163, 184, 0.15)";
+              let color = "#94a3b8";
+              let border = "rgba(148, 163, 184, 0.3)";
+              let label = "? Sem dados suficientes";
+
+              if (status === "OPERATING") {
+                bg = "rgba(16, 185, 129, 0.15)";
+                color = "#34d399";
+                border = "rgba(16, 185, 129, 0.3)";
+                label = "● Operando";
+              } else if (status === "WAITING") {
+                bg = "rgba(56, 189, 248, 0.12)";
+                color = "#38bdf8";
+                border = "rgba(56, 189, 248, 0.3)";
+                label = "◌ Aguardando próxima execução";
+              } else if (status === "FAILED") {
+                bg = "rgba(239, 68, 68, 0.15)";
+                color = "#f87171";
+                border = "rgba(239, 68, 68, 0.3)";
+                label = "⚠ Coleta com falha";
               }
-            >
-              Observação Repositórios: {data?.observation_sync_telemetry
-                ? `${data.observation_sync_telemetry.repositories_scanned} repos | +${data.observation_sync_telemetry.observations_created} sinais | ${data.observation_sync_telemetry.observations_failed} falhas`
-                : "AGUARDANDO SYNC"}
-            </div>
+
+              const tooltip = tel
+                ? `Estado: ${label}\nÚltima sincronização: ${tel.last_sync_at || "N/A"}\nÚltimo sucesso: ${tel.last_success_at || "N/A"}\nPróxima sincronização: ${tel.next_sync_at || "N/A"}\nRepositórios verificados: ${tel.repositories_scanned}\nNovos sinais: ${tel.observations_created}\nFalhas consecutivas: ${tel.consecutive_failures || 0}`
+                : "Aguardando inicialização do scheduler";
+
+              return (
+                <div
+                  style={{
+                    fontSize: "11px",
+                    padding: "4px 8px",
+                    borderRadius: "4px",
+                    backgroundColor: bg,
+                    color: color,
+                    border: `1px solid ${border}`,
+                    fontFamily: "monospace",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                  title={tooltip}
+                >
+                  <span>Observação dos Repositórios:</span>
+                  <strong>{label}</strong>
+                  {tel && (
+                    <span style={{ color: "#94a3b8", fontSize: "10px" }}>
+                      ({tel.repositories_scanned} repos | +{tel.observations_created} sinais)
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>

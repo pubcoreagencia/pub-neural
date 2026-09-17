@@ -32,13 +32,16 @@ class MockExtractor(GitHubSignalExtractor):
     def __init__(self, signals_by_repo=None):
         self.signals_by_repo = signals_by_repo or {}
 
-    def fetch_repo_signals(self, repo_full_name: str, limit_commits: int = 5, limit_prs: int = 5):
+    def fetch_repo_signals(self, repo_full_name: str, limit_commits: int = 10, limit_prs: int = 10):
         if repo_full_name in self.signals_by_repo:
             return self.signals_by_repo[repo_full_name]
         return {
             "commits": [],
             "pull_requests": [],
+            "branches": {},
+            "releases": [],
             "metadata": {"name": repo_full_name.split("/")[-1]},
+            "metadata_hash": "hash_default",
             "error": None,
         }
 
@@ -52,8 +55,6 @@ class TestObservationSyncService(unittest.TestCase):
         mock_connect.return_value = mock_conn
         mock_conn.cursor.return_value.__enter__.return_value = mock_cur
 
-        # Mock DB queries:
-        # Target repos query
         mock_cur.fetchall.return_value = [
             {
                 "repository_id": "pub-neural",
@@ -75,17 +76,21 @@ class TestObservationSyncService(unittest.TestCase):
                     }
                 ],
                 "pull_requests": [],
+                "branches": {"main": "a1b2c3d4e5f6"},
                 "metadata": {"name": "pub-neural"},
+                "metadata_hash": "hash_v1",
                 "error": None,
             }
         })
 
         sync = RepositoryObservationSync(db_url="postgresql://test:test@localhost:5432/test")
 
-        # 1st run: delivery check returns None (not existing), stream_ver returns 1
+        # 1st run:
         mock_cur.fetchone.side_effect = [
-            None,             # line 356: delivery_id check
-            {"next_ver": 1},  # line 369: next_ver
+            None,             # prev_run
+            None,             # last_any_run
+            None,             # delivery_id check (not exists -> create)
+            {"next_ver": 1},  # stream_ver
         ]
         res1 = sync.run_sync(repository_ids=["pub-neural"], github_extractor=extractor)
         self.assertEqual(res1.status, "COMPLETED")
@@ -98,6 +103,8 @@ class TestObservationSyncService(unittest.TestCase):
 
         # 2nd run: delivery check returns existing row -> deduplicated
         mock_cur.fetchone.side_effect = [
+            {"cursor_data": {}, "consecutive_failures": 0, "last_success_at": None},
+            {"status": "COMPLETED"},
             {"observation_id": str(uuid.uuid4())},  # delivery_id exists
         ]
         res2 = sync.run_sync(repository_ids=["pub-neural"], github_extractor=extractor)
@@ -122,6 +129,8 @@ class TestObservationSyncService(unittest.TestCase):
             }
         ]
         mock_cur.fetchone.side_effect = [
+            None,             # prev_run
+            None,             # last_any_run
             None,             # delivery_id check (not found)
             {"next_ver": 1},  # stream_ver
         ]
@@ -141,7 +150,9 @@ class TestObservationSyncService(unittest.TestCase):
                         "base_ref": "main",
                     }
                 ],
+                "branches": {},
                 "metadata": {"name": "pub-unclassified-worker"},
+                "metadata_hash": "hash_v1",
                 "error": None,
             }
         })
@@ -175,12 +186,19 @@ class TestObservationSyncService(unittest.TestCase):
             "pubcoreagencia/pub-ecom": {
                 "commits": [],
                 "pull_requests": [],
+                "branches": {},
                 "metadata": None,
+                "metadata_hash": None,
                 "error": "GitHub API error: rate limit exceeded or connection timeout",
             }
         })
 
         sync = RepositoryObservationSync(db_url="postgresql://test:test@localhost:5432/test")
+        mock_cur.fetchone.side_effect = [
+            None,
+            None,
+        ]
+
         res = sync.run_sync(repository_ids=["pub-ecom"], github_extractor=extractor)
 
         self.assertEqual(res.status, "COMPLETED")

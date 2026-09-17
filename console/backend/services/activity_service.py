@@ -595,19 +595,40 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
         cur.execute("SAVEPOINT sp_obs_sync_telemetry;")
         cur.execute("""
             SELECT started_at, completed_at, status, repositories_scanned,
-                   observations_created, observations_failed
+                   observations_created, observations_failed,
+                   consecutive_failures, last_success_at, last_failure_at
             FROM pub_neural.observation_sync_runs
             ORDER BY started_at DESC
             LIMIT 1;
         """)
         sync_row = cur.fetchone()
         if sync_row:
+            raw_status = sync_row.get("status")
+            consecutive_fail = int(sync_row.get("consecutive_failures") or 0)
+            if raw_status == "FAILED" or consecutive_fail > 0:
+                ui_status = "FAILED"
+            elif raw_status == "COMPLETED":
+                ui_status = "OPERATING"
+            elif raw_status == "RUNNING":
+                ui_status = "OPERATING"
+            else:
+                ui_status = "WAITING"
+
+            last_sync_dt = sync_row.get("completed_at") or sync_row.get("started_at")
+            next_sync_iso = None
+            if last_sync_dt:
+                from datetime import timedelta
+                next_sync_iso = (last_sync_dt + timedelta(minutes=15)).isoformat()
+
             obs_sync_dto = ObservationSyncTelemetryDTO(
-                last_sync_at=serialize_val(sync_row.get("completed_at") or sync_row.get("started_at")),
+                last_sync_at=serialize_val(last_sync_dt),
+                last_success_at=serialize_val(sync_row.get("last_success_at")),
+                next_sync_at=next_sync_iso,
                 repositories_scanned=int(sync_row.get("repositories_scanned") or 0),
                 observations_created=int(sync_row.get("observations_created") or 0),
                 observations_failed=int(sync_row.get("observations_failed") or 0),
-                status=sync_row.get("status") or "UNKNOWN",
+                consecutive_failures=consecutive_fail,
+                status=ui_status,
             )
         cur.execute("RELEASE SAVEPOINT sp_obs_sync_telemetry;")
     except Exception:

@@ -539,11 +539,27 @@ def create_console_server(config: Optional[ConsoleConfig] = None) -> HTTPServer:
 
 
 if __name__ == "__main__":
+    import os
+    from src.ingestion.observation_scheduler import get_observation_scheduler
+
     cfg = ConsoleConfig.from_environment()
     server = create_console_server(cfg)
     print(f"PUB Neural Console V0 Read-Only Backend serving at http://{cfg.host}:{cfg.port}")
+
+    scheduler = None
+    if os.getenv("OBSERVATION_SCHEDULER_ENABLED", "true").lower() in ("true", "1", "yes"):
+        try:
+            scheduler = get_observation_scheduler(cfg.db_url)
+            scheduler.start()
+            print("Continuous Repository Observation Scheduler daemon activated.")
+        except Exception as sched_err:
+            print(f"Warning: could not start observation scheduler daemon: {sched_err}")
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nShutting down Console server...")
+        if scheduler:
+            scheduler.stop()
         server.server_close()
+

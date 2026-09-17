@@ -364,10 +364,13 @@ export interface DailyActivityBucketDTO {
 
 export interface ObservationSyncTelemetryDTO {
   last_sync_at: string | null;
+  last_success_at?: string | null;
+  next_sync_at?: string | null;
   repositories_scanned: number;
   observations_created: number;
   observations_failed: number;
-  status: string;
+  consecutive_failures?: number;
+  status: "OPERATING" | "WAITING" | "FAILED" | "NO_DATA" | string;
 }
 
 export interface OverviewResponseDTO {

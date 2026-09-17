@@ -550,10 +550,13 @@ class DailyActivityBucketDTO:
 @dataclass(frozen=True)
 class ObservationSyncTelemetryDTO:
     last_sync_at: Optional[str] = None
+    last_success_at: Optional[str] = None
+    next_sync_at: Optional[str] = None
     repositories_scanned: int = 0
     observations_created: int = 0
     observations_failed: int = 0
-    status: str = "UNKNOWN"
+    consecutive_failures: int = 0
+    status: str = "WAITING"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
