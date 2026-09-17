@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import json
 import re
 import sys
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -215,7 +215,7 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         """Route incoming GET requests to the corresponding service handlers."""
         parsed = urlparse(self.path)
-        path = parsed.path.rstrip("/")
+        path = unquote(parsed.path.rstrip("/"))
         if not path:
             path = "/"
         params = parse_qs(parsed.query)
