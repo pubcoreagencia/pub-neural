@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS pub_neural.embedding_provenance (
             model_version,
             dimension,
             corpus_version,
-            index_version
+            index_version,
+            normalization_config
         )
 );
 
