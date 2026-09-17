@@ -137,7 +137,7 @@ class HybridSearchEngine:
             conn.close()
 
     def _resolve_compatible_provenance(self, cur, provider: str, model: str, model_version: Optional[str], dimension: int, corpus_version: str, index_version: str, normalization_config: Dict[str, Any]) -> str:
-        cur.execute("""SELECT id FROM pub_neural.embedding_provenance WHERE status='ACTIVE' AND provider=%s AND model=%s AND model_version IS NOT DISTINCT FROM %s AND dimension=%s AND corpus_version=%s AND index_version=%s ORDER BY created_at DESC LIMIT 1;""",(provider,model,model_version,dimension,corpus_version,index_version))
+        cur.execute("""SELECT id FROM pub_neural.embedding_provenance WHERE status='ACTIVE' AND provider=%s AND model=%s AND model_version IS NOT DISTINCT FROM %s AND dimension=%s AND corpus_version=%s AND index_version=%s AND normalization_config=%s::jsonb ORDER BY created_at DESC LIMIT 1;""",(provider,model,model_version,dimension,corpus_version,index_version,json.dumps(normalization_config, sort_keys=True, separators=(",", ":"))))
         row=cur.fetchone()
         if not row: raise RuntimeError("Dense retrieval blocked: no ACTIVE compatible embedding provenance.")
         return str(row["id"])
