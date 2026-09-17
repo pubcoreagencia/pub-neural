@@ -257,6 +257,33 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(200, session_info)
                 return
 
+            # 2c. Git Repository Graph endpoint: /api/v1/graph/repository (Public Source of Truth Topology)
+            if path == "/api/v1/graph/repository":
+                repo_param = params.get("repository", ["pubcoreagencia/pubcore"])[0]
+                branch_param = params.get("branch", ["main"])[0]
+                path_param = params.get("path", [""])[0]
+                depth_param = int(params.get("depth", [1])[0])
+                limit_param = int(params.get("limit", [100])[0])
+
+                git_graph = get_git_topology(
+                    repo=repo_param,
+                    branch=branch_param,
+                    base_path=path_param,
+                    depth=depth_param,
+                    limit=limit_param,
+                )
+                self._send_json(200, git_graph.to_dict())
+                return
+
+            # 2d. Git Entity Detail check for public topology nodes
+            match_git_entity = re.match(r"^/api/v1/entities/((?:repo|dir|file|commit):.+)$", path)
+            if match_git_entity:
+                entity_id = match_git_entity.group(1)
+                git_detail = get_git_node_detail(entity_id)
+                if git_detail:
+                    self._send_json(200, git_detail)
+                    return
+
             # All remaining endpoints require Authorization: Bearer <token>
             token = extract_bearer_token(self.headers.get("Authorization"))
 
