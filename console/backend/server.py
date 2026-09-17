@@ -354,7 +354,7 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(200, unified_graph.to_dict())
                 return
 
-            # 2d. Git Entity Detail check for public topology nodes
+            # 2d. Git & Project Entity Detail check for public topology nodes
             match_git_entity = re.match(r"^/api/v1/entities/((?:org|repo|dir|file|commit):.+)$", path)
             if match_git_entity:
                 entity_id = match_git_entity.group(1)
@@ -362,6 +362,45 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                 if git_detail:
                     self._send_json(200, git_detail)
                     return
+
+            # 2d2. Holding Project Entity Detail: /api/v1/entities/proj:<slug>
+            match_proj_entity = re.match(r"^/api/v1/entities/(proj:.+)$", path)
+            if match_proj_entity:
+                project_id = match_proj_entity.group(1)
+                with get_readonly_connection(self.server_config.db_url, enforce_auth=False) as cur:
+                    proj_detail = get_holding_project_detail(cur, project_id)
+                    if proj_detail:
+                        self._send_json(200, {
+                            "id": proj_detail.id,
+                            "entity_type": "PROJECT",
+                            "title": f"🏛️ {proj_detail.display_name}",
+                            "slug": proj_detail.slug,
+                            "summary": proj_detail.description or f"Holding Project {proj_detail.display_name}",
+                            "promotion_state": "INSTITUTIONAL" if proj_detail.ontology_status == "CONFIRMED" else "PROPOSED",
+                            "conflict_state": "RESOLVED",
+                            "confidence_score": proj_detail.ontology_confidence,
+                            "valid_from": proj_detail.created_at,
+                            "valid_until": None,
+                            "trust_zone": "tz_internal_holding",
+                            "project_id": proj_detail.slug,
+                            "is_active": proj_detail.is_active,
+                            "originating_event_id": "00000000-0000-0000-0000-000000000001",
+                            "evidence": [],
+                            "project_metadata": {
+                                "project_type": proj_detail.project_type,
+                                "lifecycle_status": proj_detail.lifecycle_status,
+                                "strategic_priority": proj_detail.strategic_priority,
+                                "owner_scope": proj_detail.owner_scope,
+                                "repositories_count": proj_detail.repositories_count,
+                                "confirmed_repositories_count": proj_detail.confirmed_repositories_count,
+                                "proposed_repositories_count": proj_detail.proposed_repositories_count,
+                                "repositories": [r.to_dict() for r in proj_detail.repositories],
+                            },
+                        })
+                        return
+                    else:
+                        self._send_json(404, {"error": "NotFound", "detail": f"Project entity '{project_id}' not found."})
+                        return
 
             # 2e. Git Edge Detail check for public/git edges (starting with 'edge:')
             match_git_edge = re.match(r"^/api/v1/edges/(edge:.+)$", path)

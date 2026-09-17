@@ -828,10 +828,10 @@ def get_git_edge_detail(edge_id: str) -> Optional[EdgeDetailDTO]:
     # Parse source and target safely:
     remaining = edge_id[5:]  # strip 'edge:'
     # If source starts with a known prefix
-    for prefix in ("org:", "repo:", "commit:", "dir:", "file:"):
+    for prefix in ("org:", "proj:", "repo:", "commit:", "dir:", "file:"):
         if remaining.startswith(prefix):
             # Target also starts with a known prefix
-            for t_prefix in (":org:", ":repo:", ":commit:", ":dir:", ":file:"):
+            for t_prefix in (":org:", ":proj:", ":repo:", ":commit:", ":dir:", ":file:"):
                 t_idx = remaining.find(t_prefix, len(prefix))
                 if t_idx != -1:
                     src_id = remaining[:t_idx]
@@ -853,7 +853,15 @@ def _build_git_edge_detail(edge_id: str, src_id: str, tgt_id: str) -> EdgeDetail
     evidence_list: List[EvidenceLocatorDTO] = []
     reason = f"Git hierarchical structural containment from {src_id} to {tgt_id}"
 
-    if src_id.startswith("org:") and tgt_id.startswith("repo:"):
+    if src_id.startswith("org:") and tgt_id.startswith("proj:"):
+        relation_type = "CONTAINS"
+        reason = f"Organization {src_id.replace('org:', '')} contains project {tgt_id.replace('proj:', '')}"
+        extractor = "holding-projects-registry"
+    elif src_id.startswith("proj:") and tgt_id.startswith("repo:"):
+        relation_type = "CONTAINS"
+        reason = f"Project {src_id.replace('proj:', '')} contains physical repository {tgt_id.replace('repo:', '')}"
+        extractor = "project-repositories-registry"
+    elif src_id.startswith("org:") and tgt_id.startswith("repo:"):
         relation_type = "CONTAINS"
         reason = f"Repository belongs to organization {src_id.replace('org:', '')}"
         extractor = "github-org-manifest"

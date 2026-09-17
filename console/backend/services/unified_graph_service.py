@@ -110,9 +110,9 @@ def get_unified_graph(
                 seen_edge_ids.add(e.id)
                 edges.append(e)
 
-    # 3. Evidence Bridges between Physical Repositories and Cognitive Entities
+    # 3. Evidence Bridges between Physical Repositories, Projects, and Cognitive Entities
     if source == "all" and cur is not None:
-        _attach_evidence_bridges(
+        _attach_project_and_evidence_bridges(
             cur=cur,
             nodes=nodes,
             edges=edges,
@@ -150,16 +150,89 @@ def get_unified_graph(
     )
 
 
-def _attach_evidence_bridges(
+def _attach_project_and_evidence_bridges(
     cur,
     nodes: List[GraphNodeDTO],
     edges: List[GraphEdgeDTO],
     seen_node_ids: Set[str],
     seen_edge_ids: Set[str],
 ) -> None:
-    """Connect physical repositories to cognitive entities via evidenced associations."""
+    """Project canonical PROJECT entities and wire ORG -> PROJECT -> REPOSITORY hierarchy."""
     try:
-        # A. Query project_repositories for confirmed / proposed bindings
+        org_node_id = f"org:{CANONICAL_ORG}"
+
+        # A. Query holding_projects to create canonical PROJECT nodes
+        projects_sql = """
+            SELECT
+                id, slug, display_name, description, project_type,
+                lifecycle_status, is_active, is_archived, strategic_priority,
+                owner_scope, ontology_status, ontology_source, ontology_confidence,
+                ontology_reason
+            FROM pub_neural.holding_projects;
+        """
+        cur.execute(projects_sql)
+        project_rows = cur.fetchall() or []
+
+        for proj in project_rows:
+            proj_id = proj["id"]  # e.g. "proj:pub-neural"
+            slug = proj["slug"]
+            disp_name = proj["display_name"]
+            desc = proj.get("description") or f"Holding Project {disp_name}"
+            p_type = proj.get("project_type", "PLATFORM")
+            ont_status = proj.get("ontology_status", "CONFIRMED")
+            ont_conf = float(proj.get("ontology_confidence") or 1.0)
+            ont_source = proj.get("ontology_source", "DOCUMENTATION")
+            is_active = bool(proj.get("is_active", True))
+
+            if proj_id not in seen_node_ids:
+                seen_node_ids.add(proj_id)
+                nodes.append(
+                    GraphNodeDTO(
+                        id=proj_id,
+                        entity_type="PROJECT",
+                        title=f"🏛️ {disp_name}",
+                        slug=slug,
+                        summary=f"{desc} (type: {p_type}, status: {proj.get('lifecycle_status', 'ACTIVE')})",
+                        promotion_state="INSTITUTIONAL" if ont_status == "CONFIRMED" else "PROPOSED",
+                        conflict_state="RESOLVED",
+                        confidence_score=ont_conf,
+                        valid_from="2026-01-01T00:00:00Z",
+                        valid_until=None,
+                        trust_zone="tz_internal_holding",
+                        project_id=slug,
+                        evidence_count=1,
+                    )
+                )
+
+            # Wire ORG -> PROJECT (CONTAINS)
+            org_proj_edge_id = f"edge:{org_node_id}:{proj_id}"
+            if org_node_id in seen_node_ids and org_proj_edge_id not in seen_edge_ids:
+                seen_edge_ids.add(org_proj_edge_id)
+                edges.append(
+                    GraphEdgeDTO(
+                        id=org_proj_edge_id,
+                        source_id=org_node_id,
+                        target_id=proj_id,
+                        relation_type="CONTAINS",
+                        weight=ont_conf,
+                        is_bidirectional=False,
+                        trust_zone="tz_internal_holding",
+                        is_active=is_active,
+                        association_status=ont_status,
+                        classification_source=ont_source,
+                        classification_confidence=ont_conf,
+                        classification_reason=f"Organization {CANONICAL_ORG} contains project {disp_name}",
+                        epistemic_classification="EXTRACTED" if ont_status == "CONFIRMED" else "PROPOSED",
+                        evidence_locator={
+                            "source": "pub_neural.holding_projects",
+                            "project_id": proj_id,
+                            "slug": slug,
+                            "ontology_status": ont_status,
+                        },
+                    )
+                )
+
+        # B. Query project_repositories to wire PROJECT -> REPOSITORY
         repo_assoc_sql = """
             SELECT
                 project_id, repository_id, relationship_type, is_primary,
@@ -168,12 +241,16 @@ def _attach_evidence_bridges(
             FROM pub_neural.project_repositories;
         """
         cur.execute(repo_assoc_sql)
-        assocs = cur.fetchall()
+        assocs = cur.fetchall() or []
 
-        # Map project slug to node id in cognitive graph
+        # Track mapped repository node IDs to rewire edges from ORG -> REPO to PROJECT -> REPO
+        mapped_repo_node_ids: Set[str] = set()
+
         for assoc in assocs:
-            proj_id_raw = assoc["project_id"]  # e.g. "proj:pub-core" or "pub-core"
-            repo_name = assoc["repository_id"]  # e.g. "pubcore" or "pub-neural"
+            proj_id_raw = assoc["project_id"]  # e.g. "proj:pub-core"
+            repo_name = assoc["repository_id"]  # e.g. "pubcore"
+            is_primary = bool(assoc.get("is_primary", False))
+            rel_type = assoc.get("relationship_type", "PRIMARY")
             assoc_status = assoc.get("association_status", "CONFIRMED")
             reason = assoc.get("classification_reason", "Evidenced project repository association")
             confidence = float(assoc.get("classification_confidence") or 1.0)
@@ -187,15 +264,50 @@ def _attach_evidence_bridges(
             else:
                 epistemic_state = "INFERRED"
 
+            proj_node_id = proj_id_raw if proj_id_raw.startswith("proj:") else f"proj:{proj_id_raw}"
             repo_node_id = f"repo:{CANONICAL_ORG}/{repo_name}"
 
+            # If repo node exists in graph
+            if repo_node_id in seen_node_ids and proj_node_id in seen_node_ids:
+                mapped_repo_node_ids.add(repo_node_id)
+                proj_repo_edge_id = f"edge:{proj_node_id}:{repo_node_id}"
+                if proj_repo_edge_id not in seen_edge_ids:
+                    seen_edge_ids.add(proj_repo_edge_id)
+                    edges.append(
+                        GraphEdgeDTO(
+                            id=proj_repo_edge_id,
+                            source_id=proj_node_id,
+                            target_id=repo_node_id,
+                            relation_type="CONTAINS",
+                            weight=1.0 if is_primary else 0.8,
+                            is_bidirectional=False,
+                            trust_zone="tz_internal_holding",
+                            is_active=True,
+                            association_status=assoc_status,
+                            classification_source=class_source,
+                            classification_confidence=confidence,
+                            classification_reason=f"Project {proj_node_id} contains repository {repo_name} ({rel_type}, primary={is_primary}): {reason}",
+                            epistemic_classification=epistemic_state,
+                            evidence_locator={
+                                "source": class_source,
+                                "repository": repo_name,
+                                "project_id": proj_node_id,
+                                "relationship_type": rel_type,
+                                "is_primary": is_primary,
+                                "reason": reason,
+                                "confidence": confidence,
+                                "epistemic_state": epistemic_state,
+                            },
+                        )
+                    )
+
             # Bridge to Cognitive Nodes that share this project_id
-            # Clean project key (strip 'proj:')
-            clean_proj_key = proj_id_raw.replace("proj:", "")
+            clean_proj_key = proj_node_id.replace("proj:", "")
 
             for n in nodes:
-                # If node is a cognitive entity (not git node) and belongs to this project
-                if not (n.id.startswith("org:") or n.id.startswith("repo:") or n.id.startswith("dir:") or n.id.startswith("file:") or n.id.startswith("commit:")) and n.project_id == clean_proj_key:
+                # If node is a cognitive entity and belongs to this project
+                if not (n.id.startswith("org:") or n.id.startswith("proj:") or n.id.startswith("repo:") or n.id.startswith("dir:") or n.id.startswith("file:") or n.id.startswith("commit:")) and n.project_id == clean_proj_key:
+                    # Bridge Repo -> Cognitive Entity
                     bridge_edge_id = f"edge:{repo_node_id}:{n.id}"
                     if repo_node_id in seen_node_ids and bridge_edge_id not in seen_edge_ids:
                         seen_edge_ids.add(bridge_edge_id)
@@ -212,7 +324,7 @@ def _attach_evidence_bridges(
                                 association_status=assoc_status,
                                 classification_source=class_source,
                                 classification_confidence=confidence,
-                                classification_reason=f"Repository {repo_name} binds to project {clean_proj_key}: {reason}",
+                                classification_reason=f"Repository {repo_name} binds to cognitive node {n.id} via project {clean_proj_key}: {reason}",
                                 epistemic_classification=epistemic_state,
                                 evidence_locator={
                                     "source": class_source,
@@ -225,7 +337,43 @@ def _attach_evidence_bridges(
                             )
                         )
 
-        # B. Query neural_evidence for direct file / commit evidence attachments
+                    # Bridge Project -> Cognitive Entity
+                    proj_cog_edge_id = f"edge:{proj_node_id}:{n.id}"
+                    if proj_node_id in seen_node_ids and proj_cog_edge_id not in seen_edge_ids:
+                        seen_edge_ids.add(proj_cog_edge_id)
+                        edges.append(
+                            GraphEdgeDTO(
+                                id=proj_cog_edge_id,
+                                source_id=proj_node_id,
+                                target_id=n.id,
+                                relation_type="IMPLEMENTS" if n.entity_type in ("DECISION", "GOVERNANCE", "RULE") else "APPLIES_TO",
+                                weight=1.0,
+                                is_bidirectional=False,
+                                trust_zone=n.trust_zone,
+                                is_active=True,
+                                association_status="CONFIRMED",
+                                classification_source="pub_neural.neural_nodes",
+                                classification_confidence=1.0,
+                                classification_reason=f"Project {proj_node_id} governs cognitive node {n.id}",
+                                epistemic_classification="EXTRACTED",
+                                evidence_locator={
+                                    "source": "pub_neural.neural_nodes",
+                                    "project_id": proj_node_id,
+                                    "node_id": n.id,
+                                },
+                            )
+                        )
+
+        # C. Rewire direct ORG -> REPO edges:
+        # Repositories that now have a Project parent should NOT have a duplicate direct ORG -> REPO edge.
+        # Only unmapped repositories (e.g. pub-github-mcp) retain direct edge org:pubcoreagencia -> repo:pubcoreagencia/...
+        if mapped_repo_node_ids:
+            edges[:] = [
+                e for e in edges
+                if not (e.source_id == org_node_id and e.target_id in mapped_repo_node_ids)
+            ]
+
+        # D. Query neural_evidence for direct file / commit evidence attachments
         ev_query_sql = """
             SELECT 
                 e.id AS evidence_id, e.node_id, e.edge_id, e.confidence,
@@ -236,7 +384,7 @@ def _attach_evidence_bridges(
             WHERE s.repository IS NOT NULL;
         """
         cur.execute(ev_query_sql)
-        ev_rows = cur.fetchall()
+        ev_rows = cur.fetchall() or []
 
         for ev in ev_rows:
             node_id = ev.get("node_id")
@@ -280,6 +428,7 @@ def _attach_evidence_bridges(
                     )
                 )
     except Exception as e:
-        # Fail-soft: bridge enhancement must not break base graph projection
+        # Fail-soft: project and bridge enhancement must not break base graph projection
         import logging
-        logging.getLogger(__name__).warning("Error attaching evidence bridges in unified graph: %s", e)
+        logging.getLogger(__name__).warning("Error attaching project and evidence bridges in unified graph: %s", e)
+

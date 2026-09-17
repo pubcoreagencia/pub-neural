@@ -121,7 +121,26 @@ class TestUnifiedGraphService(unittest.TestCase):
 
         mock_cur = MagicMock()
         mock_cur.fetchall.side_effect = [
-            # 1. project_repositories
+            # 1. holding_projects
+            [
+                {
+                    "id": "proj:pub-core",
+                    "slug": "pub-core",
+                    "display_name": "PUB Core",
+                    "description": "Core foundation platform",
+                    "project_type": "PLATFORM",
+                    "lifecycle_status": "ACTIVE",
+                    "is_active": True,
+                    "is_archived": False,
+                    "strategic_priority": 1,
+                    "owner_scope": "HOLDING",
+                    "ontology_status": "CONFIRMED",
+                    "ontology_source": "DOCUMENTATION",
+                    "ontology_confidence": 1.0,
+                    "ontology_reason": "Canonical platform project",
+                }
+            ],
+            # 2. project_repositories
             [
                 {
                     "project_id": "proj:pub-core",
@@ -134,7 +153,7 @@ class TestUnifiedGraphService(unittest.TestCase):
                     "classification_reason": "Core repo of pub-core platform",
                 }
             ],
-            # 2. neural_evidence
+            # 3. neural_evidence
             [],
         ]
 
@@ -142,10 +161,36 @@ class TestUnifiedGraphService(unittest.TestCase):
 
         node_ids = {n.id for n in result.nodes}
         self.assertIn("org:pubcoreagencia", node_ids)
+        self.assertIn("proj:pub-core", node_ids)
         self.assertIn("repo:pubcoreagencia/pubcore", node_ids)
         self.assertIn("decision:autonomous-execution", node_ids)
 
-        # Verify evidence bridge
+        # Verify ORG -> PROJECT edge
+        org_proj_edges = [
+            e for e in result.edges
+            if e.source_id == "org:pubcoreagencia" and e.target_id == "proj:pub-core"
+        ]
+        self.assertEqual(len(org_proj_edges), 1)
+        self.assertEqual(org_proj_edges[0].relation_type, "CONTAINS")
+        self.assertEqual(org_proj_edges[0].epistemic_classification, "EXTRACTED")
+
+        # Verify PROJECT -> REPOSITORY edge
+        proj_repo_edges = [
+            e for e in result.edges
+            if e.source_id == "proj:pub-core" and e.target_id == "repo:pubcoreagencia/pubcore"
+        ]
+        self.assertEqual(len(proj_repo_edges), 1)
+        self.assertEqual(proj_repo_edges[0].relation_type, "CONTAINS")
+        self.assertEqual(proj_repo_edges[0].epistemic_classification, "EXTRACTED")
+
+        # Direct ORG -> REPO edge should have been rewired (not present since repo is mapped)
+        direct_org_repo = [
+            e for e in result.edges
+            if e.source_id == "org:pubcoreagencia" and e.target_id == "repo:pubcoreagencia/pubcore"
+        ]
+        self.assertEqual(len(direct_org_repo), 0)
+
+        # Verify evidence bridge Repo -> Decision
         bridge_edges = [
             e for e in result.edges
             if e.source_id == "repo:pubcoreagencia/pubcore" and e.target_id == "decision:autonomous-execution"
@@ -158,13 +203,29 @@ class TestUnifiedGraphService(unittest.TestCase):
         self.assertEqual(bridge.evidence_locator["repository"], "pubcore")
 
     def test_git_edge_detail_inspection(self):
-        """Test structured edge detail generation for Git and cross-repo edges."""
-        edge_detail = get_git_edge_detail("edge:org:pubcoreagencia:repo:pubcoreagencia/pub-neural")
+        """Test structured edge detail generation for Git, Project, and cross-repo edges."""
+        # Org -> Project containment edge
+        org_proj_detail = get_git_edge_detail("edge:org:pubcoreagencia:proj:pub-neural")
+        self.assertIsNotNone(org_proj_detail)
+        self.assertEqual(org_proj_detail.relation_type, "CONTAINS")
+        self.assertEqual(org_proj_detail.epistemic_classification, "EXTRACTED")
+        self.assertEqual(org_proj_detail.extractor, "holding-projects-registry")
+
+        # Project -> Repo containment edge
+        proj_repo_detail = get_git_edge_detail("edge:proj:pub-neural:repo:pubcoreagencia/pub-neural")
+        self.assertIsNotNone(proj_repo_detail)
+        self.assertEqual(proj_repo_detail.relation_type, "CONTAINS")
+        self.assertEqual(proj_repo_detail.epistemic_classification, "EXTRACTED")
+        self.assertEqual(proj_repo_detail.extractor, "project-repositories-registry")
+
+        # Org -> Repo (unmapped)
+        edge_detail = get_git_edge_detail("edge:org:pubcoreagencia:repo:pubcoreagencia/pub-github-mcp")
         self.assertIsNotNone(edge_detail)
         self.assertEqual(edge_detail.relation_type, "CONTAINS")
         self.assertEqual(edge_detail.epistemic_classification, "EXTRACTED")
         self.assertEqual(edge_detail.extractor, "github-org-manifest")
 
+        # Cross-repo
         cross_edge_detail = get_git_edge_detail("edge:repo:pubcoreagencia/PUB-BEATS:repo:pubcoreagencia/pub-records")
         self.assertIsNotNone(cross_edge_detail)
         self.assertEqual(cross_edge_detail.relation_type, "DERIVED_FROM")
@@ -175,3 +236,4 @@ class TestUnifiedGraphService(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
