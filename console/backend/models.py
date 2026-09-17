@@ -345,8 +345,73 @@ class ProjectRegistryListDTO:
 
 
 @dataclass(frozen=True)
-class ExecutiveSummaryDTO:
+class ProjectRepositoryAssociationDTO:
+    project_id: str
+    repository_id: str
+    repository_name: str
+    display_name: str
+    category: str
+    relationship_type: str
+    is_primary: bool
+    association_status: str
+    classification_source: str
+    classification_confidence: float
+    classification_reason: Optional[str]
+    github_url: Optional[str]
+    observation_count: int = 0
+    last_observation_at: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class HoldingProjectItemDTO:
+    id: str
+    slug: str
+    display_name: str
+    description: Optional[str]
+    project_type: str
+    lifecycle_status: str
+    is_active: bool
+    is_archived: bool
+    strategic_priority: str
+    owner_scope: str
+    repositories_count: int
+    confirmed_repositories_count: int
+    proposed_repositories_count: int
+    active_knowledge_nodes_count: int
+    recent_observations_7d: int
+    repositories: List[ProjectRepositoryAssociationDTO]
+    created_at: str
+    updated_at: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        d = asdict(self)
+        d["repositories"] = [r.to_dict() for r in self.repositories]
+        return d
+
+
+@dataclass(frozen=True)
+class HoldingProjectListDTO:
     total_projects: int
+    projects: List[HoldingProjectItemDTO]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "total_projects": self.total_projects,
+            "projects": [p.to_dict() for p in self.projects],
+        }
+
+
+@dataclass(frozen=True)
+class ExecutiveSummaryDTO:
+    total_holding_projects: int
+    total_repositories: int
+    multi_repo_projects_count: int
+    unclassified_repositories_count: int
+    confirmed_associations_count: int
+    proposed_associations_count: int
     active_projects: int
     monitored_repositories: int
     recent_observations_7d: int
@@ -355,8 +420,14 @@ class ExecutiveSummaryDTO:
     adopted_knowledge_count: int
     neural_health: str
 
+    @property
+    def total_projects(self) -> int:
+        return self.total_holding_projects
+
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        d["total_projects"] = self.total_holding_projects
+        return d
 
 
 @dataclass(frozen=True)
@@ -422,6 +493,7 @@ class OverviewResponseDTO:
     projects: List[OverviewProjectDTO]
     daily_activity: List[DailyActivityBucketDTO]
     executive_summary: Optional[ExecutiveSummaryDTO] = None
+    holding_projects: Optional[List[HoldingProjectItemDTO]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -432,4 +504,5 @@ class OverviewResponseDTO:
             "projects": [p.to_dict() for p in self.projects],
             "daily_activity": [b.to_dict() for b in self.daily_activity],
             "executive_summary": self.executive_summary.to_dict() if self.executive_summary else None,
+            "holding_projects": [hp.to_dict() for hp in self.holding_projects] if self.holding_projects else None,
         }

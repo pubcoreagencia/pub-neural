@@ -11,6 +11,9 @@ import type {
   SessionInfoDTO,
   ProjectRegistryListDTO,
   ProjectRegistryItemDTO,
+  HoldingProjectListDTO,
+  HoldingProjectItemDTO,
+  ProjectRepositoryAssociationDTO,
 } from "./types";
 
 const SESSION_STORAGE_KEY = "pub_neural_session_token";
@@ -183,12 +186,42 @@ export const NeuralAPI = {
     return fetchApi<GovernanceReviewResponseDTO>("/governance/review");
   },
 
+  async getHoldingProjects(params?: {
+    projectType?: string;
+    lifecycleStatus?: string;
+    isActive?: boolean;
+  }): Promise<HoldingProjectListDTO> {
+    const searchParams = new URLSearchParams();
+    if (params?.projectType) searchParams.set("project_type", params.projectType);
+    if (params?.lifecycleStatus) searchParams.set("lifecycle_status", params.lifecycleStatus);
+    if (params?.isActive !== undefined) searchParams.set("is_active", String(params.isActive));
+    const qs = searchParams.toString();
+    return fetchApi<HoldingProjectListDTO>(`/projects${qs ? `?${qs}` : ""}`);
+  },
+
+  async getHoldingProjectDetail(projectId: string): Promise<HoldingProjectItemDTO> {
+    return fetchApi<HoldingProjectItemDTO>(`/projects/${encodeURIComponent(projectId)}`);
+  },
+
+  async getProjectRepositories(projectId: string): Promise<ProjectRepositoryAssociationDTO[]> {
+    return fetchApi<ProjectRepositoryAssociationDTO[]>(`/projects/${encodeURIComponent(projectId)}/repositories`);
+  },
+
+  async getRepositories(): Promise<any[]> {
+    return fetchApi<any[]>("/repositories");
+  },
+
+  async getUnclassifiedRepositories(): Promise<ProjectRegistryItemDTO[]> {
+    return fetchApi<ProjectRegistryItemDTO[]>("/repositories/unclassified");
+  },
+
   async getProjects(params?: {
     category?: string;
     isActive?: boolean;
     isArchived?: boolean;
   }): Promise<ProjectRegistryListDTO> {
     const searchParams = new URLSearchParams();
+    searchParams.set("view", "repositories");
     if (params?.category) searchParams.set("category", params.category);
     if (params?.isActive !== undefined) searchParams.set("is_active", String(params.isActive));
     if (params?.isArchived !== undefined) searchParams.set("is_archived", String(params.isArchived));

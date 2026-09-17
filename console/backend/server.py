@@ -29,6 +29,13 @@ from console.backend.services.activity_service import (
     get_project_detail,
     get_projects_registry,
 )
+from console.backend.services.ontology_service import (
+    get_all_repositories,
+    get_holding_project_detail,
+    get_holding_projects,
+    get_project_repositories,
+    get_unclassified_repositories,
+)
 from console.backend.services.auth_service import (
     get_current_session,
     login_actor,
@@ -260,35 +267,74 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                     self._send_json(200, gov_dto.to_dict())
                 return
 
-            # 3c. Projects Registry endpoint: GET /api/v1/projects
+            # 3c. Holding Projects Ontology endpoint: GET /api/v1/projects
             if path == "/api/v1/projects":
-                category = params.get("category", [None])[0]
+                project_type = params.get("project_type", [None])[0]
                 lifecycle_status = params.get("lifecycle_status", [None])[0]
                 is_active_param = params.get("is_active", [None])[0]
                 is_active = None
                 if is_active_param is not None:
                     is_active = is_active_param.lower() in ("true", "1")
 
+                # If caller asks specifically for repositories/registry, provide legacy registry
+                view_mode = params.get("view", [None])[0]
                 with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
-                    projects_dto = get_projects_registry(
-                        cur,
-                        category=category,
-                        lifecycle_status=lifecycle_status,
-                        is_active=is_active,
-                    )
-                    self._send_json(200, projects_dto.to_dict())
+                    if view_mode == "repositories":
+                        projects_dto = get_projects_registry(
+                            cur,
+                            lifecycle_status=lifecycle_status,
+                            is_active=is_active,
+                        )
+                        self._send_json(200, projects_dto.to_dict())
+                    else:
+                        holding_dto = get_holding_projects(
+                            cur,
+                            project_type=project_type,
+                            lifecycle_status=lifecycle_status,
+                            is_active=is_active,
+                        )
+                        self._send_json(200, holding_dto.to_dict())
                 return
 
-            # 3d. Project Detail endpoint: GET /api/v1/projects/{project_id}
+            # 3d. Project Repositories endpoint: GET /api/v1/projects/{project_id}/repositories
+            match_proj_repos = re.match(r"^/api/v1/projects/([^/]+)/repositories$", path)
+            if match_proj_repos:
+                project_id = match_proj_repos.group(1)
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    repos = get_project_repositories(cur, project_id)
+                    self._send_json(200, [r.to_dict() for r in repos])
+                return
+
+            # 3e. Project Detail endpoint: GET /api/v1/projects/{project_id}
             match_proj = re.match(r"^/api/v1/projects/([^/]+)$", path)
             if match_proj:
                 project_id = match_proj.group(1)
                 with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    # Try holding project first
+                    hp_detail = get_holding_project_detail(cur, project_id)
+                    if hp_detail:
+                        self._send_json(200, hp_detail.to_dict())
+                        return
+                    # Fallback to repository registry detail
                     proj_detail = get_project_detail(cur, project_id)
                     if not proj_detail:
-                        self._send_json(404, {"error": "NotFound", "detail": f"Project '{project_id}' not found in registry."})
+                        self._send_json(404, {"error": "NotFound", "detail": f"Project '{project_id}' not found in ontology or registry."})
                         return
                     self._send_json(200, proj_detail)
+                return
+
+            # 3f. Repositories Unclassified: GET /api/v1/repositories/unclassified
+            if path == "/api/v1/repositories/unclassified":
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    unclass = get_unclassified_repositories(cur)
+                    self._send_json(200, [r.to_dict() for r in unclass])
+                return
+
+            # 3g. All Repositories with Project Mapping: GET /api/v1/repositories
+            if path == "/api/v1/repositories":
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    all_repos = get_all_repositories(cur)
+                    self._send_json(200, all_repos)
                 return
 
             # 4. Search endpoint

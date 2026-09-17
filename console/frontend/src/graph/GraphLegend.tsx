@@ -2,13 +2,14 @@ import { useState } from "react";
 
 export function GraphLegend() {
   const [expanded, setExpanded] = useState(false);
-
   const categories = [
+    { label: "HOLDING", color: "#a855f7" },
+    { label: "PROJECT", color: "#3b82f6" },
+    { label: "REPOSITORY", color: "#64748b" },
     { label: "DECISION", color: "#8b5cf6" },
     { label: "RULE", color: "#f59e0b" },
     { label: "PATTERN", color: "#06b6d4" },
     { label: "LESSON", color: "#10b981" },
-    { label: "PROJECT", color: "#3b82f6" },
     { label: "EVIDENCE", color: "#0284c7" },
     { label: "EVENT", color: "#e11d48" },
   ];

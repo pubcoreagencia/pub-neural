@@ -7,12 +7,14 @@ vi.mock("../api/client", () => ({
   NeuralAPI: {
     getOverview: vi.fn(),
     getGovernanceReview: vi.fn(),
+    getUnclassifiedRepositories: vi.fn(),
   },
 }));
 
 describe("OverviewView Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(NeuralAPI.getUnclassifiedRepositories).mockResolvedValue([]);
     vi.mocked(NeuralAPI.getGovernanceReview).mockResolvedValue({
       generated_at: "2026-09-16T12:00:00Z",
       candidates_count: 0,
@@ -270,6 +272,138 @@ describe("OverviewView Component", () => {
       expect(screen.getByText("Supabase pgcrypto search_path configuration")).toBeDefined();
       expect(screen.getByText("LESSON • CANDIDATO")).toBeDefined();
       expect(screen.getByText(/Proposto por: autonomous-gate \(AGENT\)/i)).toBeDefined();
+    });
+  });
+
+  it("renders Project Ontology V0.2: Holding Projects, Repositories tree, and Unclassified Repositories", async () => {
+    vi.mocked(NeuralAPI.getOverview).mockResolvedValueOnce({
+      generated_at: "2026-09-16T12:00:00Z",
+      window_days: 14,
+      database_health: "HEALTHY",
+      projector_health: "HEALTHY",
+      executive_summary: {
+        total_holding_projects: 34,
+        total_repositories: 57,
+        multi_repo_projects_count: 13,
+        unclassified_repositories_count: 1,
+        confirmed_associations_count: 17,
+        proposed_associations_count: 39,
+        active_projects: 34,
+        monitored_repositories: 57,
+        recent_observations_7d: 1,
+        events_today: 0,
+        candidate_knowledge_count: 0,
+        adopted_knowledge_count: 4,
+        neural_health: "SAUDAVEL",
+      },
+      projects: [
+        {
+          project_id: "pub-ecom",
+          display_name: "PUB E-Commerce",
+          is_active: true,
+          is_archived: false,
+          observed_repository_count: 1,
+          observation_count: 5,
+          activity_today: 0,
+          activity_7d: 1,
+          last_observation_at: "2026-09-16T10:00:00Z",
+          active_node_count: 2,
+          project_state: "ATIVO_OBSERVADO",
+          blocked_nodes_count: 0,
+          latest_signal: null,
+        },
+      ],
+      holding_projects: [
+        {
+          id: "proj:pub-ecom",
+          slug: "pub-ecom",
+          display_name: "PUB E-Commerce",
+          description: "Hub de e-commerce",
+          project_type: "PRODUCT",
+          lifecycle_status: "ATIVO",
+          is_active: true,
+          is_archived: false,
+          strategic_priority: "CRITICA",
+          owner_scope: "pubcoreagencia",
+          repositories_count: 2,
+          confirmed_repositories_count: 1,
+          proposed_repositories_count: 1,
+          active_knowledge_nodes_count: 2,
+          recent_observations_7d: 1,
+          repositories: [
+            {
+              project_id: "proj:pub-ecom",
+              repository_id: "pub-ecom",
+              repository_name: "pub-ecom",
+              display_name: "pub-ecom",
+              category: "ECOMMERCE",
+              relationship_type: "PRIMARY",
+              is_primary: true,
+              association_status: "CONFIRMED",
+              classification_source: "DOCUMENTATION",
+              classification_confidence: 1.0,
+              classification_reason: "Monorepo core",
+              github_url: "https://github.com/pubcoreagencia/pub-ecom",
+            },
+            {
+              project_id: "proj:pub-ecom",
+              repository_id: "pub-ecom-landing",
+              repository_name: "pub-ecom-landing",
+              display_name: "pub-ecom-landing",
+              category: "FRONTEND",
+              relationship_type: "LANDING_PAGE",
+              is_primary: false,
+              association_status: "PROPOSED",
+              classification_source: "RULE",
+              classification_confidence: 0.9,
+              classification_reason: "Prefix match",
+              github_url: "https://github.com/pubcoreagencia/pub-ecom-landing",
+            },
+          ],
+          created_at: "2026-09-16T00:00:00Z",
+          updated_at: "2026-09-16T00:00:00Z",
+        },
+      ],
+      daily_activity: [],
+    });
+
+    vi.mocked(NeuralAPI.getUnclassifiedRepositories).mockResolvedValueOnce([
+      {
+        id: "pub-github-mcp",
+        repository_full_name: "pubcoreagencia/pub-github-mcp",
+        repository_name: "pub-github-mcp",
+        display_name: "pub-github-mcp",
+        description: "Standalone MCP repository",
+        category: "INFRAESTRUTURA",
+        lifecycle_status: "ATIVO",
+        is_active: true,
+        is_archived: false,
+        is_private: true,
+        monitoring_enabled: true,
+        strategic_priority: "PADRAO",
+        github_url: "https://github.com/pubcoreagencia/pub-github-mcp",
+        created_at: "2026-09-16T00:00:00Z",
+        updated_at: "2026-09-16T00:00:00Z",
+        last_discovered_at: "2026-09-16T00:00:00Z",
+      },
+    ]);
+
+    render(<OverviewView />);
+
+    await waitFor(() => {
+      // 1. Executive Summary Cards
+      expect(screen.getByText("34")).toBeDefined();
+      expect(screen.getByText("57")).toBeDefined();
+      expect(screen.getByText("13")).toBeDefined();
+      expect(screen.getByText("Multi-Repositório")).toBeDefined();
+
+      // 2. Repositórios Associados toggle
+      expect(screen.getByText(/Repositórios Associados \(2\)/i)).toBeDefined();
+
+      // 3. Unclassified Repositories Section
+      expect(screen.getByText(/Repositórios Não Classificados \(1\)/i)).toBeDefined();
+      expect(screen.getByText("pub-github-mcp")).toBeDefined();
+      expect(screen.getByText("NÃO CLASSIFICADO")).toBeDefined();
     });
   });
 });

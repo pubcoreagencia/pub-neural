@@ -4,6 +4,7 @@ import type {
   OverviewResponseDTO,
   OverviewProjectDTO,
   CandidateReviewDTO,
+  ProjectRegistryItemDTO,
 } from "../api/types";
 
 interface OverviewViewProps {
@@ -29,6 +30,8 @@ export function OverviewView({
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("TODOS");
   const [filterCategory, setFilterCategory] = useState<string>("TODAS");
   const [searchQuery, setSearchQuery] = useState("");
+  const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
+  const [unclassifiedRepos, setUnclassifiedRepos] = useState<ProjectRegistryItemDTO[]>([]);
 
   const fetchOverview = () => {
     setLoading(true);
@@ -36,10 +39,12 @@ export function OverviewView({
     Promise.all([
       NeuralAPI.getOverview(windowDays),
       NeuralAPI.getGovernanceReview().catch(() => ({ candidates: [] })),
+      NeuralAPI.getUnclassifiedRepositories().catch(() => []),
     ])
-      .then(([overviewRes, govRes]) => {
+      .then(([overviewRes, govRes, unclassRes]) => {
         setData(overviewRes);
         setCandidates(govRes.candidates || []);
+        setUnclassifiedRepos(unclassRes || []);
       })
       .catch((err: any) => {
         const msg = err.message || "Falha ao carregar dados da visão geral";
@@ -56,6 +61,13 @@ export function OverviewView({
   useEffect(() => {
     fetchOverview();
   }, [windowDays]);
+
+  const toggleProjectExpand = (projId: string) => {
+    setExpandedProjects((prev) => ({
+      ...prev,
+      [projId]: !prev[projId],
+    }));
+  };
 
   // Extract categories for filter
   const categories = useMemo(() => {
@@ -324,6 +336,7 @@ export function OverviewView({
       </div>
 
       {/* SECTION: RESUMO EXECUTIVO DA PUB CORE HOLDING */}
+      {/* SECTION: RESUMO EXECUTIVO DA PUB CORE HOLDING */}
       {exec && (
         <div style={{ marginBottom: "28px" }}>
           <div
@@ -341,7 +354,7 @@ export function OverviewView({
           >
             <span>Panorama Executivo da Holding</span>
             <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 400 }}>
-              • Universo de projetos pubcoreagencia e atividade neural factual
+              • Ontologia canônica PUB Core: 34 projetos, 57 repositórios e atividade neural factual
             </span>
           </div>
 
@@ -353,33 +366,41 @@ export function OverviewView({
             }}
           >
             <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
-              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Total de Projetos</div>
-              <div style={{ fontSize: "24px", fontWeight: 800, color: "#f8fafc", marginTop: "4px" }}>{exec.total_projects}</div>
-              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Registrados no catálogo</div>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Projetos da Holding</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: "#f8fafc", marginTop: "4px" }}>{exec.total_holding_projects || exec.total_projects}</div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Produtos & Sistemas</div>
             </div>
 
             <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
-              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Projetos Ativos</div>
-              <div style={{ fontSize: "24px", fontWeight: 800, color: "#34d399", marginTop: "4px" }}>{exec.active_projects}</div>
-              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Em operação / ciclo ativo</div>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Repositórios Totais</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: "#38bdf8", marginTop: "4px" }}>{exec.total_repositories}</div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Registrados no GitHub</div>
             </div>
 
             <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
-              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Repositórios Monitorados</div>
-              <div style={{ fontSize: "24px", fontWeight: 800, color: "#38bdf8", marginTop: "4px" }}>{exec.monitored_repositories}</div>
-              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Com monitoramento ativo</div>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Multi-Repositório</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: "#a855f7", marginTop: "4px" }}>{exec.multi_repo_projects_count}</div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Projetos com &gt; 1 repo</div>
+            </div>
+
+            <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Não Classificados</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: (exec.unclassified_repositories_count || 0) > 0 ? "#f59e0b" : "#34d399", marginTop: "4px" }}>
+                {exec.unclassified_repositories_count ?? 0}
+              </div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Repositórios isolados</div>
             </div>
 
             <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
               <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Observações (7d)</div>
               <div style={{ fontSize: "24px", fontWeight: 800, color: "#60a5fa", marginTop: "4px" }}>{exec.recent_observations_7d}</div>
-              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Telemetria de repositório</div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Telemetria factual</div>
             </div>
 
             <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
               <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Eventos Hoje (UTC)</div>
               <div style={{ fontSize: "24px", fontWeight: 800, color: "#c084fc", marginTop: "4px" }}>{exec.events_today}</div>
-              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Eventos de fluxo registrados</div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Eventos de fluxo</div>
             </div>
 
             <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
@@ -985,6 +1006,147 @@ export function OverviewView({
                     )}
                   </div>
 
+                  {/* Repositórios Associados ao Projeto (Ontologia V0.2) */}
+                  {(() => {
+                    const hp = data?.holding_projects?.find(
+                      (h) => h.id === proj.project_id || h.slug === proj.project_id || h.id === `proj:${proj.project_id}`
+                    );
+                    const repos = hp?.repositories || [];
+                    const isExpanded = !!expandedProjects[proj.project_id];
+
+                    if (repos.length === 0) return null;
+
+                    return (
+                      <div
+                        style={{
+                          backgroundColor: "#090d16",
+                          border: "1px solid #1e293b",
+                          borderRadius: "6px",
+                          padding: "8px 10px",
+                          fontSize: "11px",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "6px",
+                        }}
+                      >
+                        <div
+                          onClick={() => toggleProjectExpand(proj.project_id)}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            cursor: "pointer",
+                            userSelect: "none",
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: "10px",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.05em",
+                              color: "#38bdf8",
+                              fontWeight: 600,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "4px",
+                            }}
+                          >
+                            <span>📦 Repositórios Associados ({repos.length})</span>
+                          </span>
+                          <span style={{ fontSize: "10px", color: "#64748b" }}>
+                            {isExpanded ? "▲ Recolher" : "▼ Expandir"}
+                          </span>
+                        </div>
+
+                        {isExpanded && (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "4px" }}>
+                            {repos.map((r) => (
+                              <div
+                                key={r.repository_id}
+                                style={{
+                                  padding: "6px 8px",
+                                  backgroundColor: "#0f172a",
+                                  border: "1px solid #1e293b",
+                                  borderRadius: "4px",
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  gap: "8px",
+                                }}
+                              >
+                                <div>
+                                  <div style={{ fontWeight: 600, color: "#f1f5f9", fontSize: "11px" }}>
+                                    {r.repository_name}
+                                    {r.is_primary && (
+                                      <span
+                                        style={{
+                                          marginLeft: "6px",
+                                          fontSize: "9px",
+                                          padding: "1px 4px",
+                                          borderRadius: "3px",
+                                          backgroundColor: "rgba(56, 189, 248, 0.15)",
+                                          color: "#38bdf8",
+                                        }}
+                                      >
+                                        Principal
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div style={{ fontSize: "9px", color: "#64748b", marginTop: "1px" }}>
+                                    {r.relationship_type} • {r.classification_reason || r.classification_source}
+                                  </div>
+                                </div>
+
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  {r.association_status === "CONFIRMED" ? (
+                                    <span
+                                      style={{
+                                        fontSize: "9px",
+                                        padding: "2px 6px",
+                                        borderRadius: "3px",
+                                        backgroundColor: "rgba(16, 185, 129, 0.15)",
+                                        color: "#34d399",
+                                        border: "1px solid rgba(16, 185, 129, 0.3)",
+                                        fontWeight: 600,
+                                      }}
+                                    >
+                                      Confirmado
+                                    </span>
+                                  ) : (
+                                    <span
+                                      style={{
+                                        fontSize: "9px",
+                                        padding: "2px 6px",
+                                        borderRadius: "3px",
+                                        backgroundColor: "rgba(245, 158, 11, 0.15)",
+                                        color: "#fcd34d",
+                                        border: "1px solid rgba(245, 158, 11, 0.3)",
+                                        fontWeight: 600,
+                                      }}
+                                      title={`Confiança: ${Math.round(r.classification_confidence * 100)}%`}
+                                    >
+                                      Sugerido ({Math.round(r.classification_confidence * 100)}%)
+                                    </span>
+                                  )}
+                                  {r.github_url && (
+                                    <a
+                                      href={r.github_url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      style={{ color: "#94a3b8", textDecoration: "none", fontSize: "10px" }}
+                                    >
+                                      ↗
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   {/* Ações de Detalhamento */}
                   <div
                     style={{
@@ -1034,6 +1196,110 @@ export function OverviewView({
           </div>
         )}
       </div>
+
+      {/* SECTION: REPOSITÓRIOS NÃO CLASSIFICADOS (PROVANDO O ESTADO UNCLASSIFIED) */}
+      {unclassifiedRepos.length > 0 && (
+        <div style={{ marginBottom: "32px" }}>
+          <div
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              color: "#f59e0b",
+              marginBottom: "12px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            <span>Repositórios Não Classificados ({unclassifiedRepos.length})</span>
+            <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 400 }}>
+              • Repositórios isolados sem projeto holding associado (isolamento ontológico factual)
+            </span>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
+              gap: "16px",
+            }}
+          >
+            {unclassifiedRepos.map((repo) => (
+              <div
+                key={repo.id}
+                style={{
+                  backgroundColor: "#0f172a",
+                  border: "1px solid #334155",
+                  borderLeft: "3px solid #f59e0b",
+                  borderRadius: "6px",
+                  padding: "14px 16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontSize: "14px", fontWeight: 700, color: "#f8fafc" }}>
+                      {repo.display_name || repo.repository_name}
+                    </div>
+                    <div style={{ fontSize: "11px", color: "#64748b", fontFamily: "monospace", marginTop: "2px" }}>
+                      {repo.repository_full_name}
+                    </div>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: "9px",
+                      padding: "2px 6px",
+                      borderRadius: "3px",
+                      backgroundColor: "rgba(245, 158, 11, 0.15)",
+                      color: "#fbbf24",
+                      fontFamily: "monospace",
+                      fontWeight: 600,
+                    }}
+                  >
+                    NÃO CLASSIFICADO
+                  </span>
+                </div>
+
+                {repo.description && (
+                  <div style={{ fontSize: "11px", color: "#94a3b8", lineHeight: 1.4 }}>
+                    {repo.description}
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    borderTop: "1px solid #1e293b",
+                    paddingTop: "8px",
+                    marginTop: "4px",
+                    fontSize: "11px",
+                  }}
+                >
+                  <span style={{ color: "#64748b", fontFamily: "monospace" }}>
+                    Categoria: {repo.category}
+                  </span>
+                  {repo.github_url && (
+                    <a
+                      href={repo.github_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: "#38bdf8", textDecoration: "none" }}
+                    >
+                      Abrir no GitHub ↗
+                    </a>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* SECTION 2: MAPA DE CALOR DE ATIVIDADE DIÁRIA */}
       <div>

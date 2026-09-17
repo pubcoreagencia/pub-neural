@@ -15,6 +15,7 @@ const ENTITY_COLORS: Record<string, { bg: string; border: string; text: string; 
   RULE: { bg: "#2a1e12", border: "#f59e0b", text: "#fef3c7", badge: "#78350f" },
   PATTERN: { bg: "#112629", border: "#06b6d4", text: "#cffafe", badge: "#164e63" },
   LESSON: { bg: "#13271d", border: "#10b981", text: "#d1fae5", badge: "#064e3b" },
+  HOLDING: { bg: "#2d1b4e", border: "#a855f7", text: "#f3e8ff", badge: "#6b21a8" },
   PROJECT: { bg: "#142136", border: "#3b82f6", text: "#dbeafe", badge: "#1e3a8a" },
   REPOSITORY: { bg: "#1b212b", border: "#64748b", text: "#e2e8f0", badge: "#334155" },
   EVIDENCE: { bg: "#122333", border: "#0284c7", text: "#e0f2fe", badge: "#075985" },

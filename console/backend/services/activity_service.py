@@ -19,6 +19,7 @@ from console.backend.models import (
     ProjectRegistryListDTO,
     serialize_val,
 )
+from console.backend.services.ontology_service import get_holding_projects
 
 
 def get_projects_registry(
@@ -440,7 +441,54 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
             for r in daily_rows
         ]
 
-    # 9. Aggregate Executive Summary
+    # 9. Aggregate Holding Projects & Executive Summary
+    holding_projects_dto = None
+    total_holding_projects = 0
+    total_repositories = 0
+    multi_repo_projects_count = 0
+    unclassified_repositories_count = 0
+    confirmed_associations_count = 0
+    proposed_associations_count = 0
+
+    try:
+        cur.execute("SAVEPOINT sp_holding_projects;")
+        hp_list = get_holding_projects(cur)
+        holding_projects_dto = hp_list.projects
+        total_holding_projects = hp_list.total_projects
+        multi_repo_projects_count = sum(1 for hp in hp_list.projects if hp.repositories_count > 1)
+
+        cur.execute("SELECT COUNT(*) AS total_repos FROM pub_neural.project_registry;")
+        total_repositories = int((cur.fetchone() or {}).get("total_repos", 0))
+
+        cur.execute("""
+            SELECT
+                COUNT(*) FILTER (WHERE association_status = 'CONFIRMED') AS confirmed_count,
+                COUNT(*) FILTER (WHERE association_status = 'PROPOSED') AS proposed_count
+            FROM pub_neural.project_repositories;
+        """)
+        assoc_counts = cur.fetchone() or {}
+        confirmed_associations_count = int(assoc_counts.get("confirmed_count") or 0)
+        proposed_associations_count = int(assoc_counts.get("proposed_count") or 0)
+
+        cur.execute("""
+            SELECT COUNT(*) AS unclassified_count
+            FROM pub_neural.project_registry reg
+            LEFT JOIN pub_neural.project_repositories pr ON reg.id = pr.repository_id
+            WHERE pr.repository_id IS NULL;
+        """)
+        unclassified_repositories_count = int((cur.fetchone() or {}).get("unclassified_count", 0))
+        cur.execute("RELEASE SAVEPOINT sp_holding_projects;")
+    except Exception:
+        try:
+            cur.execute("ROLLBACK TO SAVEPOINT sp_holding_projects;")
+        except Exception:
+            pass
+
+    if total_holding_projects == 0 and len(projects) > 0:
+        total_holding_projects = len(projects)
+    if total_repositories == 0 and len(projects) > 0:
+        total_repositories = len(projects)
+
     cur.execute("""
         SELECT
             COUNT(*) FILTER (WHERE promotion_state = 'CANDIDATE' AND is_active = TRUE) AS candidate_count,
@@ -457,12 +505,16 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
     """)
     ev_today = (cur.fetchone() or {}).get("today_events", 0)
 
-    total_projects = len(projects)
     active_projects = sum(1 for p in projects if p.is_active and not p.is_archived)
     monitored_repos = sum(1 for p in projects if p.monitoring_enabled)
 
     exec_summary = ExecutiveSummaryDTO(
-        total_projects=total_projects,
+        total_holding_projects=total_holding_projects,
+        total_repositories=total_repositories,
+        multi_repo_projects_count=multi_repo_projects_count,
+        unclassified_repositories_count=unclassified_repositories_count,
+        confirmed_associations_count=confirmed_associations_count,
+        proposed_associations_count=proposed_associations_count,
         active_projects=active_projects,
         monitored_repositories=monitored_repos,
         recent_observations_7d=total_obs_7d,
@@ -480,6 +532,7 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
         projects=projects,
         daily_activity=daily_buckets,
         executive_summary=exec_summary,
+        holding_projects=holding_projects_dto,
     )
 
 

@@ -191,8 +191,55 @@ export interface ProjectRegistryListDTO {
   projects: ProjectRegistryItemDTO[];
 }
 
-export interface ExecutiveSummaryDTO {
+export interface ProjectRepositoryAssociationDTO {
+  project_id: string;
+  repository_id: string;
+  repository_name: string;
+  display_name: string;
+  category: string;
+  relationship_type: string;
+  is_primary: boolean;
+  association_status: "CONFIRMED" | "PROPOSED" | "UNCLASSIFIED" | string;
+  classification_source: string;
+  classification_confidence: number;
+  classification_reason?: string | null;
+  github_url?: string | null;
+}
+
+export interface HoldingProjectItemDTO {
+  id: string;
+  slug: string;
+  display_name: string;
+  description?: string | null;
+  project_type: string;
+  lifecycle_status: string;
+  is_active: boolean;
+  is_archived: boolean;
+  strategic_priority: string;
+  owner_scope: string;
+  repositories_count: number;
+  confirmed_repositories_count: number;
+  proposed_repositories_count: number;
+  active_knowledge_nodes_count: number;
+  recent_observations_7d: number;
+  repositories: ProjectRepositoryAssociationDTO[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface HoldingProjectListDTO {
   total_projects: number;
+  projects: HoldingProjectItemDTO[];
+}
+
+export interface ExecutiveSummaryDTO {
+  total_holding_projects?: number;
+  total_repositories?: number;
+  multi_repo_projects_count?: number;
+  unclassified_repositories_count?: number;
+  confirmed_associations_count?: number;
+  proposed_associations_count?: number;
+  total_projects?: number;
   active_projects: number;
   monitored_repositories: number;
   recent_observations_7d: number;
@@ -237,6 +284,7 @@ export interface OverviewResponseDTO {
   projects: OverviewProjectDTO[];
   daily_activity: DailyActivityBucketDTO[];
   executive_summary?: ExecutiveSummaryDTO | null;
+  holding_projects?: HoldingProjectItemDTO[] | null;
 }
 
 export interface CandidateReviewDTO {
