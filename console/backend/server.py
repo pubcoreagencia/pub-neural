@@ -24,10 +24,13 @@ from console.backend.dependencies import (
     get_readonly_connection,
 )
 from console.backend.services.activity_service import (
+    get_activity_signals,
     get_governance_review_data,
     get_overview_data,
+    get_project_activity,
     get_project_detail,
     get_projects_registry,
+    get_repository_activity,
 )
 from console.backend.services.ontology_service import (
     get_all_repositories,
@@ -261,6 +264,36 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                     self._send_json(200, overview_dto.to_dict())
                 return
 
+            # 3a2. Activity Signals endpoint (Operational Activity Intelligence V0.4)
+            if path == "/api/v1/activity":
+                window_param = params.get("window_days", [14])[0]
+                try:
+                    window_days = int(window_param)
+                except ValueError:
+                    window_days = 14
+
+                limit_param = params.get("limit", [50])[0]
+                try:
+                    limit = int(limit_param)
+                except ValueError:
+                    limit = 50
+
+                project_id = params.get("project_id", [None])[0]
+                repository_id = params.get("repository_id", [None])[0]
+                activity_type = params.get("activity_type", [None])[0]
+
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    act_dto = get_activity_signals(
+                        cur,
+                        window_days=window_days,
+                        project_id=project_id,
+                        repository_id=repository_id,
+                        activity_type=activity_type,
+                        limit=limit,
+                    )
+                    self._send_json(200, act_dto.to_dict())
+                return
+
             # 3b. Governance Review endpoint (Knowledge awaiting review)
             if path == "/api/v1/governance/review":
                 with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
@@ -315,6 +348,25 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                     self._send_json(200, [r.to_dict() for r in repos])
                 return
 
+            # 3d2. Project Activity endpoint: GET /api/v1/projects/{project_id}/activity
+            match_proj_act = re.match(r"^/api/v1/projects/([^/]+)/activity$", path)
+            if match_proj_act:
+                project_id = match_proj_act.group(1)
+                window_param = params.get("window_days", [14])[0]
+                try:
+                    window_days = int(window_param)
+                except ValueError:
+                    window_days = 14
+                limit_param = params.get("limit", [50])[0]
+                try:
+                    limit = int(limit_param)
+                except ValueError:
+                    limit = 50
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    act_dto = get_project_activity(cur, project_id=project_id, window_days=window_days, limit=limit)
+                    self._send_json(200, act_dto.to_dict())
+                return
+
             # 3e. Project Detail endpoint: GET /api/v1/projects/{project_id}
             match_proj = re.match(r"^/api/v1/projects/([^/]+)$", path)
             if match_proj:
@@ -338,6 +390,25 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                 with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
                     unclass = get_unclassified_repositories(cur)
                     self._send_json(200, [r.to_dict() for r in unclass])
+                return
+
+            # 3f2. Repository Activity endpoint: GET /api/v1/repositories/{repository_id}/activity
+            match_repo_act = re.match(r"^/api/v1/repositories/([^/]+)/activity$", path)
+            if match_repo_act:
+                repository_id = match_repo_act.group(1)
+                window_param = params.get("window_days", [14])[0]
+                try:
+                    window_days = int(window_param)
+                except ValueError:
+                    window_days = 14
+                limit_param = params.get("limit", [50])[0]
+                try:
+                    limit = int(limit_param)
+                except ValueError:
+                    limit = 50
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    act_dto = get_repository_activity(cur, repository_id=repository_id, window_days=window_days, limit=limit)
+                    self._send_json(200, act_dto.to_dict())
                 return
 
             # 3g. All Repositories with Project Mapping: GET /api/v1/repositories

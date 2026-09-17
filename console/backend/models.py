@@ -308,9 +308,49 @@ class LatestSignalDTO:
     summary: str
     source: str
     locator: str
+    repository: Optional[str] = None
+    event_id: Optional[str] = None
+    project_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class ActivitySignalDTO:
+    id: str
+    project_id: Optional[str]
+    project_display_name: Optional[str]
+    repository_id: Optional[str]
+    repository_name: Optional[str]
+    activity_type: str
+    timestamp: str
+    source: str
+    summary: str
+    locator: str
+    evidence_preview: Optional[Dict[str, Any]] = None
+    event_id: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ActivityListResponseDTO:
+    window_days: int
+    total_signals: int
+    projects_with_activity_today: int
+    projects_with_activity_7d: int
+    signals: List[ActivitySignalDTO]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "window_days": self.window_days,
+            "total_signals": self.total_signals,
+            "projects_with_activity_today": self.projects_with_activity_today,
+            "projects_with_activity_7d": self.projects_with_activity_7d,
+            "signals": [s.to_dict() for s in self.signals],
+        }
 
 
 @dataclass(frozen=True)
@@ -434,6 +474,8 @@ class ExecutiveSummaryDTO:
     confirmed_projects_count: int = 0
     proposed_projects_count: int = 0
     unknown_projects_count: int = 0
+    projects_with_activity_today_count: int = 0
+    projects_with_activity_7d_count: int = 0
 
     @property
     def total_projects(self) -> int:
@@ -455,6 +497,9 @@ class OverviewProjectDTO:
     last_observation_at: Optional[str]
     active_node_count: int
     project_state: str = "SEM_OBSERVACOES"
+    operational_activity_state: str = "SEM_ATIVIDADE_NO_PERIODO"
+    signals_today: int = 0
+    signals_7d: int = 0
     blocked_nodes_count: int = 0
     latest_signal: Optional[LatestSignalDTO] = None
     display_name: Optional[str] = None
@@ -476,6 +521,9 @@ class OverviewProjectDTO:
             "last_observation_at": self.last_observation_at,
             "active_node_count": self.active_node_count,
             "project_state": self.project_state,
+            "operational_activity_state": self.operational_activity_state,
+            "signals_today": self.signals_today,
+            "signals_7d": self.signals_7d,
             "blocked_nodes_count": self.blocked_nodes_count,
             "latest_signal": self.latest_signal.to_dict() if self.latest_signal else None,
             "display_name": self.display_name or self.project_id,

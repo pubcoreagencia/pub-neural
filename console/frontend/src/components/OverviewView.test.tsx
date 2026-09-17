@@ -9,6 +9,7 @@ vi.mock("../api/client", () => ({
     getGovernanceReview: vi.fn(),
     getUnclassifiedRepositories: vi.fn(),
     getGovernanceOntologyQueues: vi.fn(),
+    getActivity: vi.fn(),
   },
 }));
 
@@ -16,6 +17,28 @@ describe("OverviewView Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(NeuralAPI.getUnclassifiedRepositories).mockResolvedValue([]);
+    vi.mocked(NeuralAPI.getActivity).mockResolvedValue({
+      window_days: 14,
+      total_signals: 1,
+      projects_with_activity_today: 1,
+      projects_with_activity_7d: 1,
+      signals: [
+        {
+          id: "obs:1",
+          project_id: "pub-ecom",
+          project_display_name: "PUB E-Commerce",
+          repository_id: "pub-ecom",
+          repository_name: "pubcoreagencia/pub-ecom",
+          activity_type: "REPOSITORY_OBSERVED",
+          timestamp: "2026-09-16T12:00:00Z",
+          source: "neural_repository_observations",
+          summary: "Observed commit a1b2c3d on branch main",
+          locator: "pubcoreagencia/pub-ecom@a1b2c3d",
+          evidence_preview: null,
+          event_id: null,
+        },
+      ],
+    });
     vi.mocked(NeuralAPI.getGovernanceReview).mockResolvedValue({
       generated_at: "2026-09-16T12:00:00Z",
       candidates_count: 0,
@@ -193,6 +216,16 @@ describe("OverviewView Component", () => {
       window_days: 14,
       database_health: "HEALTHY",
       projector_health: "HEALTHY",
+      executive_summary: {
+        total_projects: 3,
+        active_projects: 2,
+        monitored_repositories: 1,
+        recent_observations_7d: 15,
+        events_today: 3,
+        candidate_knowledge_count: 0,
+        adopted_knowledge_count: 20,
+        neural_health: "SAUDAVEL",
+      },
       projects: [
         {
           project_id: "pub-ecom",
@@ -267,9 +300,9 @@ describe("OverviewView Component", () => {
       expect(screen.getByText("Nós Bloqueados: 2")).toBeDefined();
       expect(screen.getAllByText("Nós Bloqueados: 0").length).toBeGreaterThanOrEqual(2);
 
-      // 3. Operational Signals
-      expect(screen.getByText("TELEMETRIA")).toBeDefined();
-      expect(screen.getByText("Observed commit a1b2c3d on branch main")).toBeDefined();
+      // 3. Operational Signals (appears in project card and/or holding activity feed)
+      expect(screen.getAllByText("TELEMETRIA").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText("Observed commit a1b2c3d on branch main").length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText("pub-holding/pub-ecom@a1b2c3d")).toBeDefined();
 
       expect(screen.getByText("SINAL DE TAREFA")).toBeDefined();
@@ -471,6 +504,98 @@ describe("OverviewView Component", () => {
       // 3. Filas de Governança
       expect(screen.getByText(/Filas de Governança Ontológica/i)).toBeDefined();
       expect(screen.getByText(/Projetos Aguardando Validação \(1\)/i)).toBeDefined();
+    });
+  });
+
+  it("renders V0.4 Operational Activity Intelligence: feed, filters, metric cards, and operational holding map", async () => {
+    vi.mocked(NeuralAPI.getOverview).mockResolvedValueOnce({
+      generated_at: "2026-09-16T05:00:00Z",
+      window_days: 14,
+      database_health: "HEALTHY",
+      projector_health: "HEALTHY",
+      executive_summary: {
+        total_projects: 3,
+        active_projects: 3,
+        monitored_repositories: 2,
+        recent_observations_7d: 12,
+        events_today: 4,
+        candidate_knowledge_count: 0,
+        adopted_knowledge_count: 20,
+        neural_health: "SAUDAVEL",
+        projects_with_activity_today_count: 1,
+        projects_with_activity_7d_count: 2,
+      },
+      projects: [
+        {
+          project_id: "pub-ecom",
+          display_name: "PUB E-Commerce",
+          is_active: true,
+          is_archived: false,
+          observed_repository_count: 1,
+          observation_count: 50,
+          activity_today: 3,
+          activity_7d: 15,
+          operational_activity_state: "ATIVIDADE_HOJE",
+          last_observation_at: "2026-09-16T04:30:00Z",
+          active_node_count: 12,
+          project_state: "ATIVO_OBSERVADO",
+          blocked_nodes_count: 0,
+          latest_signal: null,
+        },
+        {
+          project_id: "pub-trade",
+          display_name: "PUB Trade",
+          is_active: true,
+          is_archived: false,
+          observed_repository_count: 1,
+          observation_count: 20,
+          activity_today: 0,
+          activity_7d: 5,
+          operational_activity_state: "ATIVIDADE_RECENTE",
+          last_observation_at: "2026-09-14T04:30:00Z",
+          active_node_count: 6,
+          project_state: "ATIVO_OBSERVADO",
+          blocked_nodes_count: 0,
+          latest_signal: null,
+        },
+        {
+          project_id: "pub-docs",
+          display_name: "PUB Docs",
+          is_active: true,
+          is_archived: false,
+          observed_repository_count: 0,
+          observation_count: 0,
+          activity_today: 0,
+          activity_7d: 0,
+          operational_activity_state: "DADOS_INSUFICIENTES",
+          last_observation_at: null,
+          active_node_count: 2,
+          project_state: "SEM_OBSERVACOES",
+          blocked_nodes_count: 0,
+          latest_signal: null,
+        },
+      ],
+      daily_activity: [],
+    });
+
+    render(<OverviewView />);
+
+    await waitFor(() => {
+      // 1. Executive Summary Activity Cards
+      expect(screen.getByText("Atividade Hoje")).toBeDefined();
+      expect(screen.getByText("Atividade 7 Dias")).toBeDefined();
+
+      // 2. Section 0B: Activity Feed Header & Signals
+      expect(screen.getByText(/Atividade Operacional da Holding/i)).toBeDefined();
+      expect(screen.getByText("REPOSITORY_OBSERVED")).toBeDefined();
+      expect(screen.getByText("Observed commit a1b2c3d on branch main")).toBeDefined();
+
+      // 3. Section 0C: Holding Operational Map
+      expect(screen.getByText(/Mapa Operacional da Holding/i)).toBeDefined();
+      expect(screen.getAllByText(/⚡ Atividade Hoje/i).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText(/⏱ Atividade Recente/i).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText(/○ Sem Atividade no Período/i).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText(/Dados Insuficientes/i).length).toBeGreaterThanOrEqual(1);
     });
   });
 });

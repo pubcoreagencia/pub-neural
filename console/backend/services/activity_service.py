@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from console.backend.models import (
+    ActivityListResponseDTO,
+    ActivitySignalDTO,
     CandidateReviewDTO,
     DailyActivityBucketDTO,
     ExecutiveSummaryDTO,
@@ -289,59 +291,70 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
         if isinstance(r, dict) and "project_id" in r
     }
 
-    # 6. Latest Operational Signal per project
+    # 6. Operational Signals aggregation and latest signal per project
     cur.execute("""
         WITH signals AS (
             SELECT
-                project_id,
+                COALESCE(pr.project_id, obs.project_id) AS project_id,
+                obs.repository AS repository,
                 'REPOSITORY_OBSERVED' AS signal_type,
-                observed_at AS sig_timestamp,
+                obs.observed_at AS sig_timestamp,
                 CASE
-                    WHEN sha IS NOT NULL AND ref IS NOT NULL THEN 'Observed commit ' || substring(sha from 1 for 7) || ' on branch ' || ref
-                    WHEN sha IS NOT NULL THEN 'Observed commit ' || substring(sha from 1 for 7)
-                    WHEN ref IS NOT NULL THEN 'Observed branch ' || ref
+                    WHEN obs.sha IS NOT NULL AND obs.ref IS NOT NULL THEN 'Observed commit ' || substring(obs.sha from 1 for 7) || ' on branch ' || obs.ref
+                    WHEN obs.sha IS NOT NULL THEN 'Observed commit ' || substring(obs.sha from 1 for 7)
+                    WHEN obs.ref IS NOT NULL THEN 'Observed branch ' || obs.ref
                     ELSE 'Repository observation recorded'
                 END AS summary,
                 'neural_repository_observations' AS source,
-                COALESCE(repository || '@' || sha, observation_id::text) AS locator,
+                COALESCE(obs.repository || '@' || obs.sha, obs.observation_id::text) AS locator,
+                obs.event_id::text AS event_id,
                 2 AS priority
-            FROM pub_neural.neural_repository_observations
-            WHERE project_id IS NOT NULL
+            FROM pub_neural.neural_repository_observations obs
+            LEFT JOIN pub_neural.project_repositories pr ON obs.repository_name = pr.repository_id OR obs.repository = pr.repository_id
+            WHERE obs.project_id IS NOT NULL OR pr.project_id IS NOT NULL
 
             UNION ALL
 
             SELECT
                 COALESCE(payload->>'projectId', payload->>'project_id') AS project_id,
-                'TASK_EXPERIENCE_RECORDED' AS signal_type,
+                COALESCE(payload->>'repository', payload->>'repository_name') AS repository,
+                event_type AS signal_type,
                 recorded_at AS sig_timestamp,
-                'Task ' || COALESCE(payload->>'taskId', payload->>'task_id', 'unknown') ||
-                ' completed with status ' || COALESCE(payload->>'status', 'UNKNOWN') ||
                 CASE
-                    WHEN payload->>'objective' IS NOT NULL THEN ': ' || (payload->>'objective')
-                    ELSE ''
+                    WHEN event_type = 'TASK_EXPERIENCE_RECORDED' THEN
+                        'Task ' || COALESCE(payload->>'taskId', payload->>'task_id', 'unknown') ||
+                        ' completed with status ' || COALESCE(payload->>'status', 'UNKNOWN') ||
+                        CASE WHEN payload->>'objective' IS NOT NULL THEN ': ' || (payload->>'objective') ELSE '' END
+                    WHEN event_type = 'AUTONOMOUS_AGENT_VALIDATED' THEN
+                        'Autonomous Agent: ' || COALESCE(payload->>'title', payload->>'statement', 'Validated')
+                    WHEN event_type = 'OPERATING_MODE_ADOPTED' THEN
+                        'Operating Mode: ' || COALESCE(payload->>'title', 'Adopted')
+                    ELSE 'Event ' || event_type
                 END AS summary,
                 'neural_events' AS source,
                 id::text AS locator,
+                id::text AS event_id,
                 1 AS priority
             FROM pub_neural.neural_events
-            WHERE event_type = 'TASK_EXPERIENCE_RECORDED'
-              AND (payload->>'projectId' IS NOT NULL OR payload->>'project_id' IS NOT NULL)
+            WHERE (payload->>'projectId' IS NOT NULL OR payload->>'project_id' IS NOT NULL)
         ),
         ranked_signals AS (
             SELECT
                 project_id,
+                repository,
                 signal_type,
                 sig_timestamp,
                 summary,
                 source,
                 locator,
+                event_id,
                 ROW_NUMBER() OVER (
                     PARTITION BY project_id
                     ORDER BY sig_timestamp DESC, priority ASC, locator ASC
                 ) AS rank_num
             FROM signals
         )
-        SELECT project_id, signal_type, sig_timestamp, summary, source, locator
+        SELECT project_id, repository, signal_type, sig_timestamp, summary, source, locator, event_id
         FROM ranked_signals
         WHERE rank_num = 1;
     """)
@@ -356,11 +369,16 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
             summary=r["summary"],
             source=r["source"],
             locator=r["locator"],
+            repository=r.get("repository"),
+            event_id=r.get("event_id"),
+            project_id=pid,
         )
 
-    # 7. Build Project DTOs
+    # 7. Build Project DTOs with operational_activity_state and signal counts
     projects: List[OverviewProjectDTO] = []
     total_obs_7d = 0
+    projects_with_activity_today = 0
+    projects_with_activity_7d = 0
 
     for pid in all_project_ids:
         obs_data = obs_by_project.get(pid, {})
@@ -368,10 +386,30 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
         reg_info = registry_by_id.get(pid, {})
 
         obs_count = int(obs_data.get("total_observations") or 0)
+        act_today = int(obs_data.get("today_observations") or 0)
         act_7d = int(obs_data.get("seven_day_observations") or 0)
         total_obs_7d += act_7d
 
-        # Determine friendly project_state
+        # Also check signal level activity
+        latest_sig = signals_by_project.get(pid)
+        sig_count_today = act_today
+        sig_count_7d = act_7d
+
+        # Determine semantic operational_activity_state
+        if act_today > 0:
+            op_activity_state = "ATIVIDADE_HOJE"
+            projects_with_activity_today += 1
+            projects_with_activity_7d += 1
+        elif act_7d > 0 or (latest_sig and latest_sig.timestamp):
+            # Check if latest signal was within 7 days
+            op_activity_state = "ATIVIDADE_RECENTE"
+            projects_with_activity_7d += 1
+        elif obs_count > 0:
+            op_activity_state = "SEM_ATIVIDADE_NO_PERIODO"
+        else:
+            op_activity_state = "DADOS_INSUFICIENTES"
+
+        # Determine registry status
         if reg_info.get("is_archived"):
             p_state = "ARQUIVADO"
         elif obs_count > 0:
@@ -384,13 +422,16 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
                 project_id=pid,
                 observed_repository_count=int(obs_data.get("observed_repos") or 0),
                 observation_count=obs_count,
-                activity_today=int(obs_data.get("today_observations") or 0),
+                activity_today=act_today,
                 activity_7d=act_7d,
                 last_observation_at=serialize_val(last_obs) if last_obs else None,
                 active_node_count=nodes_by_project.get(pid, 0),
                 project_state=p_state,
+                operational_activity_state=op_activity_state,
+                signals_today=sig_count_today,
+                signals_7d=sig_count_7d,
                 blocked_nodes_count=blocked_by_project.get(pid, 0),
-                latest_signal=signals_by_project.get(pid),
+                latest_signal=latest_sig,
                 display_name=reg_info.get("display_name") or pid,
                 description=reg_info.get("description") or "",
                 category=reg_info.get("category") or "OPERACIONAL",
@@ -540,6 +581,8 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
         confirmed_projects_count=confirmed_projects_count,
         proposed_projects_count=proposed_projects_count,
         unknown_projects_count=unknown_projects_count,
+        projects_with_activity_today_count=projects_with_activity_today,
+        projects_with_activity_7d_count=projects_with_activity_7d,
     )
 
     return OverviewResponseDTO(
@@ -623,3 +666,211 @@ def get_governance_review_data(cur) -> GovernanceReviewResponseDTO:
         candidates_count=len(candidates),
         candidates=candidates,
     )
+
+
+def get_activity_signals(
+    cur,
+    window_days: int = 14,
+    project_id: Optional[str] = None,
+    repository_id: Optional[str] = None,
+    activity_type: Optional[str] = None,
+    limit: int = 50,
+) -> ActivityListResponseDTO:
+    """
+    Retrieves chronological, verifiable activity signals across projects and repositories.
+    Supports filtering by window_days, project_id, repository_id, and activity_type.
+    Strictly factual: derived directly from neural_repository_observations and neural_events.
+    """
+    clamped_window = min(max(window_days, 1), 90)
+    clamped_limit = min(max(limit, 1), 100)
+
+    # Base query combining repository observations and domain neural events
+    cur.execute("""
+        WITH raw_signals AS (
+            SELECT
+                'obs:' || obs.observation_id::text AS signal_id,
+                COALESCE(pr.project_id, obs.project_id) AS project_id,
+                hp.display_name AS project_display_name,
+                COALESCE(pr.repository_id, obs.repository_name, obs.repository) AS repository_id,
+                obs.repository AS repository_name,
+                'REPOSITORY_OBSERVED' AS activity_type,
+                obs.observed_at AS timestamp,
+                'neural_repository_observations' AS source,
+                CASE
+                    WHEN obs.sha IS NOT NULL AND obs.ref IS NOT NULL THEN 'Observed commit ' || substring(obs.sha from 1 for 7) || ' on branch ' || obs.ref
+                    WHEN obs.sha IS NOT NULL THEN 'Observed commit ' || substring(obs.sha from 1 for 7)
+                    WHEN obs.ref IS NOT NULL THEN 'Observed branch ' || obs.ref
+                    ELSE 'Repository observation recorded'
+                END AS summary,
+                COALESCE(obs.repository || '@' || obs.sha, obs.observation_id::text) AS locator,
+                jsonb_build_object(
+                    'ref', obs.ref,
+                    'sha', obs.sha,
+                    'is_default_branch', obs.is_default_branch,
+                    'details', obs.details
+                ) AS evidence_preview,
+                obs.event_id::text AS event_id
+            FROM pub_neural.neural_repository_observations obs
+            LEFT JOIN pub_neural.project_repositories pr
+                ON obs.repository_name = pr.repository_id OR obs.repository = pr.repository_id
+            LEFT JOIN pub_neural.holding_projects hp
+                ON COALESCE(pr.project_id, obs.project_id) = hp.id
+            WHERE obs.observed_at >= timezone('UTC', CURRENT_TIMESTAMP) - (%(window_days)s || ' days')::interval
+
+            UNION ALL
+
+            SELECT
+                'ev:' || e.id::text AS signal_id,
+                COALESCE(e.payload->>'projectId', e.payload->>'project_id') AS project_id,
+                hp.display_name AS project_display_name,
+                COALESCE(e.payload->>'repositoryId', e.payload->>'repository_id', e.payload->>'repository') AS repository_id,
+                COALESCE(e.payload->>'repository', e.payload->>'repository_name') AS repository_name,
+                e.event_type AS activity_type,
+                e.recorded_at AS timestamp,
+                'neural_events' AS source,
+                CASE
+                    WHEN e.event_type = 'TASK_EXPERIENCE_RECORDED' THEN
+                        'Task ' || COALESCE(e.payload->>'taskId', e.payload->>'task_id', 'unknown') ||
+                        ' completed with status ' || COALESCE(e.payload->>'status', 'UNKNOWN') ||
+                        CASE WHEN e.payload->>'objective' IS NOT NULL THEN ': ' || (e.payload->>'objective') ELSE '' END
+                    WHEN e.event_type = 'AUTONOMOUS_AGENT_VALIDATED' THEN
+                        'Autonomous Agent: ' || COALESCE(e.payload->>'title', e.payload->>'statement', 'Validated')
+                    WHEN e.event_type = 'OPERATING_MODE_ADOPTED' THEN
+                        'Operating Mode: ' || COALESCE(e.payload->>'title', 'Adopted')
+                    ELSE 'Event ' || e.event_type
+                END AS summary,
+                e.id::text AS locator,
+                jsonb_build_object(
+                    'event_type', e.event_type,
+                    'actor_id', e.actor_id,
+                    'actor_role', e.actor_role,
+                    'stream_id', e.stream_id,
+                    'stream_version', e.stream_version
+                ) AS evidence_preview,
+                e.id::text AS event_id
+            FROM pub_neural.neural_events e
+            LEFT JOIN pub_neural.holding_projects hp
+                ON COALESCE(e.payload->>'projectId', e.payload->>'project_id') = hp.id
+            WHERE e.recorded_at >= timezone('UTC', CURRENT_TIMESTAMP) - (%(window_days)s || ' days')::interval
+              AND (
+                  e.payload->>'projectId' IS NOT NULL
+                  OR e.payload->>'project_id' IS NOT NULL
+                  OR e.payload->>'repository' IS NOT NULL
+                  OR e.payload->>'repository_name' IS NOT NULL
+              )
+        )
+        SELECT
+            signal_id,
+            project_id,
+            project_display_name,
+            repository_id,
+            repository_name,
+            activity_type,
+            timestamp,
+            source,
+            summary,
+            locator,
+            evidence_preview,
+            event_id
+        FROM raw_signals
+        WHERE (%(project_id)s IS NULL OR project_id = %(project_id)s)
+          AND (%(repository_id)s IS NULL OR repository_id = %(repository_id)s OR repository_name = %(repository_id)s)
+          AND (%(activity_type)s IS NULL OR activity_type = %(activity_type)s)
+        ORDER BY timestamp DESC
+        LIMIT %(limit)s;
+    """, {
+        "window_days": clamped_window,
+        "project_id": project_id,
+        "repository_id": repository_id,
+        "activity_type": activity_type,
+        "limit": clamped_limit,
+    })
+    rows = cur.fetchall()
+
+    signals: List[ActivitySignalDTO] = []
+    for r in rows:
+        signals.append(
+            ActivitySignalDTO(
+                id=r["signal_id"],
+                project_id=r.get("project_id"),
+                project_display_name=r.get("project_display_name") or r.get("project_id"),
+                repository_id=r.get("repository_id"),
+                repository_name=r.get("repository_name") or r.get("repository_id"),
+                activity_type=r["activity_type"],
+                timestamp=serialize_val(r["timestamp"]) or "",
+                source=r["source"],
+                summary=r["summary"],
+                locator=r["locator"],
+                evidence_preview=r.get("evidence_preview"),
+                event_id=r.get("event_id"),
+            )
+        )
+
+    # Calculate summary counts for activity today vs 7d
+    cur.execute("""
+        WITH signals_summary AS (
+            SELECT
+                COALESCE(pr.project_id, obs.project_id) AS project_id,
+                obs.observed_at AS timestamp
+            FROM pub_neural.neural_repository_observations obs
+            LEFT JOIN pub_neural.project_repositories pr
+                ON obs.repository_name = pr.repository_id OR obs.repository = pr.repository_id
+            WHERE obs.observed_at >= timezone('UTC', CURRENT_TIMESTAMP) - INTERVAL '7 days'
+
+            UNION ALL
+
+            SELECT
+                COALESCE(e.payload->>'projectId', e.payload->>'project_id') AS project_id,
+                e.recorded_at AS timestamp
+            FROM pub_neural.neural_events e
+            WHERE e.recorded_at >= timezone('UTC', CURRENT_TIMESTAMP) - INTERVAL '7 days'
+              AND (e.payload->>'projectId' IS NOT NULL OR e.payload->>'project_id' IS NOT NULL)
+        )
+        SELECT
+            COUNT(DISTINCT project_id) FILTER (WHERE timestamp >= timezone('UTC', CURRENT_DATE)) AS projects_today,
+            COUNT(DISTINCT project_id) AS projects_7d
+        FROM signals_summary
+        WHERE project_id IS NOT NULL;
+    """)
+    summary_row = cur.fetchone() or {}
+    proj_today = int(summary_row.get("projects_today") or 0)
+    proj_7d = int(summary_row.get("projects_7d") or 0)
+
+    return ActivityListResponseDTO(
+        window_days=clamped_window,
+        total_signals=len(signals),
+        projects_with_activity_today=proj_today,
+        projects_with_activity_7d=proj_7d,
+        signals=signals,
+    )
+
+
+def get_project_activity(
+    cur,
+    project_id: str,
+    window_days: int = 14,
+    limit: int = 50,
+) -> ActivityListResponseDTO:
+    """Convenience accessor for project-scoped activity."""
+    return get_activity_signals(
+        cur,
+        window_days=window_days,
+        project_id=project_id,
+        limit=limit,
+    )
+
+
+def get_repository_activity(
+    cur,
+    repository_id: str,
+    window_days: int = 14,
+    limit: int = 50,
+) -> ActivityListResponseDTO:
+    """Convenience accessor for repository-scoped activity."""
+    return get_activity_signals(
+        cur,
+        window_days=window_days,
+        repository_id=repository_id,
+        limit=limit,
+    )
+

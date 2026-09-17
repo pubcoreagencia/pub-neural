@@ -169,6 +169,32 @@ export interface LatestSignalDTO {
   summary: string;
   source: string;
   locator: string;
+  repository?: string | null;
+  event_id?: string | null;
+  project_id?: string | null;
+}
+
+export interface ActivitySignalDTO {
+  id: string;
+  project_id?: string | null;
+  project_display_name?: string | null;
+  repository_id?: string | null;
+  repository_name?: string | null;
+  activity_type: string;
+  timestamp: string;
+  source: string;
+  summary: string;
+  locator: string;
+  evidence_preview?: Record<string, any> | null;
+  event_id?: string | null;
+}
+
+export interface ActivityListResponseDTO {
+  window_days: number;
+  total_signals: number;
+  projects_with_activity_today: number;
+  projects_with_activity_7d: number;
+  signals: ActivitySignalDTO[];
 }
 
 export interface ProjectRegistryItemDTO {
@@ -254,6 +280,8 @@ export interface ExecutiveSummaryDTO {
   confirmed_projects_count?: number;
   proposed_projects_count?: number;
   unknown_projects_count?: number;
+  projects_with_activity_today_count?: number;
+  projects_with_activity_7d_count?: number;
   total_projects?: number;
   active_projects: number;
   monitored_repositories: number;
@@ -313,6 +341,9 @@ export interface OverviewProjectDTO {
   last_observation_at: string | null;
   active_node_count: number;
   project_state: string;
+  operational_activity_state?: "ATIVIDADE_HOJE" | "ATIVIDADE_RECENTE" | "SEM_ATIVIDADE_NO_PERIODO" | "DADOS_INSUFICIENTES" | string;
+  signals_today?: number;
+  signals_7d?: number;
   blocked_nodes_count: number;
   latest_signal: LatestSignalDTO | null;
   display_name?: string;

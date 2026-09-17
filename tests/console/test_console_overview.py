@@ -32,6 +32,8 @@ from http.server import HTTPServer
 
 from console.backend.config import ConsoleConfig
 from console.backend.models import (
+    ActivityListResponseDTO,
+    ActivitySignalDTO,
     CandidateReviewDTO,
     DailyActivityBucketDTO,
     GovernanceReviewResponseDTO,
@@ -40,8 +42,11 @@ from console.backend.models import (
 )
 from console.backend.server import ConsoleRequestHandler
 from console.backend.services.activity_service import (
+    get_activity_signals,
     get_governance_review_data,
     get_overview_data,
+    get_project_activity,
+    get_repository_activity,
 )
 
 
@@ -533,3 +538,95 @@ class TestConsoleOverviewEndpoint(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             urllib.request.urlopen(req)
         self.assertEqual(ctx.exception.code, 405)
+
+    @patch("console.backend.server.get_activity_signals")
+    @patch("console.backend.server.get_readonly_connection")
+    def test_activity_endpoint_get_success(self, mock_get_conn, mock_get_act):
+        mock_conn_ctx = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn_ctx.__enter__.return_value = mock_cur
+        mock_get_conn.return_value = mock_conn_ctx
+
+        mock_get_act.return_value = ActivityListResponseDTO(
+            window_days=14,
+            total_signals=1,
+            projects_with_activity_today=1,
+            projects_with_activity_7d=1,
+            signals=[
+                ActivitySignalDTO(
+                    id="obs:123",
+                    project_id="pub-neural",
+                    project_display_name="PUB Neural",
+                    repository_id="pub-neural",
+                    repository_name="pubcoreagencia/pub-neural",
+                    activity_type="REPOSITORY_OBSERVED",
+                    timestamp="2026-09-16T12:00:00Z",
+                    source="neural_repository_observations",
+                    summary="Observed commit a1b2c3d on branch main",
+                    locator="pubcoreagencia/pub-neural@a1b2c3d",
+                    evidence_preview={"ref": "main", "sha": "a1b2c3d"},
+                    event_id="0191e4f0-0000-7000-8000-000000000001",
+                )
+            ],
+        )
+
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/activity?window_days=7",
+            headers={"Authorization": "Bearer valid-token-123"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(data["window_days"], 14)
+            self.assertEqual(data["total_signals"], 1)
+            self.assertEqual(data["projects_with_activity_today"], 1)
+            self.assertEqual(data["projects_with_activity_7d"], 1)
+            sig = data["signals"][0]
+            self.assertEqual(sig["id"], "obs:123")
+            self.assertEqual(sig["project_id"], "pub-neural")
+            self.assertEqual(sig["activity_type"], "REPOSITORY_OBSERVED")
+            self.assertEqual(sig["locator"], "pubcoreagencia/pub-neural@a1b2c3d")
+
+    @patch("console.backend.server.get_project_activity")
+    @patch("console.backend.server.get_readonly_connection")
+    def test_project_activity_endpoint_get_success(self, mock_get_conn, mock_get_proj_act):
+        mock_conn_ctx = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn_ctx.__enter__.return_value = mock_cur
+        mock_get_conn.return_value = mock_conn_ctx
+
+        mock_get_proj_act.return_value = ActivityListResponseDTO(
+            window_days=14,
+            total_signals=1,
+            projects_with_activity_today=1,
+            projects_with_activity_7d=1,
+            signals=[
+                ActivitySignalDTO(
+                    id="ev:456",
+                    project_id="pub-neural",
+                    project_display_name="PUB Neural",
+                    repository_id="pub-neural",
+                    repository_name="pubcoreagencia/pub-neural",
+                    activity_type="TASK_EXPERIENCE_RECORDED",
+                    timestamp="2026-09-16T15:00:00Z",
+                    source="neural_events",
+                    summary="Task task-01 completed with status SUCCESS",
+                    locator="456",
+                    evidence_preview={"event_type": "TASK_EXPERIENCE_RECORDED"},
+                    event_id="456",
+                )
+            ],
+        )
+
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/projects/pub-neural/activity",
+            headers={"Authorization": "Bearer valid-token-123"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(data["total_signals"], 1)
+            sig = data["signals"][0]
+            self.assertEqual(sig["id"], "ev:456")
+            self.assertEqual(sig["activity_type"], "TASK_EXPERIENCE_RECORDED")
+

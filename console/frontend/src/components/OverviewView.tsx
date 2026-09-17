@@ -5,6 +5,7 @@ import type {
   OverviewProjectDTO,
   CandidateReviewDTO,
   GovernanceOntologyQueuesDTO,
+  ActivitySignalDTO,
 } from "../api/types";
 
 interface OverviewViewProps {
@@ -14,7 +15,7 @@ interface OverviewViewProps {
   onUnauthorized?: () => void;
 }
 
-type FilterStatus = "TODOS" | "ATIVOS" | "EM_DESENVOLVIMENTO" | "ARQUIVADOS" | "SEM_OBSERVACOES";
+type FilterStatus = "TODOS" | "ATIVOS" | "ATIVIDADE_HOJE" | "ATIVIDADE_RECENTE" | "SEM_ATIVIDADE" | "ARQUIVADOS" | "SEM_OBSERVACOES";
 
 export function OverviewView({
   onSelectProjectForGraph,
@@ -33,6 +34,32 @@ export function OverviewView({
   const [filterCategory, setFilterCategory] = useState<string>("TODAS");
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
+
+  // Activity Intelligence V0.4 State
+  const [activitySignals, setActivitySignals] = useState<ActivitySignalDTO[]>([]);
+  const [activityLoading, setActivityLoading] = useState<boolean>(false);
+  const [activityWindow, setActivityWindow] = useState<number>(14);
+  const [activityTypeFilter, setActivityTypeFilter] = useState<string>("TODOS");
+  const [activityProjectFilter, setActivityProjectFilter] = useState<string>("TODOS");
+
+  const fetchActivityFeed = () => {
+    setActivityLoading(true);
+    NeuralAPI.getActivity({
+      windowDays: activityWindow,
+      projectId: activityProjectFilter !== "TODOS" ? activityProjectFilter : undefined,
+      activityType: activityTypeFilter !== "TODOS" ? activityTypeFilter : undefined,
+      limit: 50,
+    })
+      .then((res) => {
+        setActivitySignals(res.signals || []);
+      })
+      .catch(() => {
+        setActivitySignals([]);
+      })
+      .finally(() => {
+        setActivityLoading(false);
+      });
+  };
 
   const fetchOverview = () => {
     setLoading(true);
@@ -62,6 +89,10 @@ export function OverviewView({
   useEffect(() => {
     fetchOverview();
   }, [windowDays]);
+
+  useEffect(() => {
+    fetchActivityFeed();
+  }, [activityWindow, activityTypeFilter, activityProjectFilter]);
 
   const toggleProjectExpand = (projId: string) => {
     setExpandedProjects((prev) => ({
@@ -96,12 +127,16 @@ export function OverviewView({
       // Status filter
       if (filterStatus === "ATIVOS") {
         if (!p.is_active || p.is_archived) return false;
+      } else if (filterStatus === "ATIVIDADE_HOJE") {
+        if (p.operational_activity_state !== "ATIVIDADE_HOJE" && p.activity_today === 0) return false;
+      } else if (filterStatus === "ATIVIDADE_RECENTE") {
+        if (p.operational_activity_state !== "ATIVIDADE_RECENTE" && p.activity_7d === 0) return false;
+      } else if (filterStatus === "SEM_ATIVIDADE") {
+        if (p.operational_activity_state !== "SEM_ATIVIDADE_NO_PERIODO" && p.observation_count === 0) return false;
       } else if (filterStatus === "ARQUIVADOS") {
         if (!p.is_archived) return false;
       } else if (filterStatus === "SEM_OBSERVACOES") {
         if (p.observation_count > 0) return false;
-      } else if (filterStatus === "EM_DESENVOLVIMENTO") {
-        if (p.is_archived || p.observation_count === 0) return false;
       }
 
       // Category filter
@@ -418,6 +453,26 @@ export function OverviewView({
             </div>
 
             <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Atividade Hoje</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: (exec.projects_with_activity_today_count || 0) > 0 ? "#34d399" : "#64748b", marginTop: "4px" }}>
+                {exec.projects_with_activity_today_count ?? 0}
+              </div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }} title="Projetos com observações ou eventos registrados hoje (UTC)">
+                {(exec.projects_with_activity_today_count || 0) > 0 ? "⚡ Projetos ativos hoje" : "Sem sinais hoje"}
+              </div>
+            </div>
+
+            <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Atividade 7 Dias</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: "#38bdf8", marginTop: "4px" }}>
+                {exec.projects_with_activity_7d_count ?? 0}
+              </div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }} title="Projetos com observações ou eventos na janela de 7 dias">
+                Projetos com sinal recente
+              </div>
+            </div>
+
+            <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
               <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Observações (7d)</div>
               <div style={{ fontSize: "24px", fontWeight: 800, color: "#60a5fa", marginTop: "4px" }}>{exec.recent_observations_7d}</div>
               <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Telemetria factual</div>
@@ -592,6 +647,358 @@ export function OverviewView({
         )}
       </div>
 
+      {/* SECTION 0B: ATIVIDADE OPERACIONAL RECENTE (FEED DE SINAIS FACTUAIS V0.4) */}
+      <div style={{ marginBottom: "32px" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "12px",
+            marginBottom: "12px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span
+              style={{
+                fontSize: "13px",
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                color: "#38bdf8",
+              }}
+            >
+              Atividade Operacional da Holding ({activitySignals.length} sinais nos últimos {activityWindow} dias)
+            </span>
+            <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 400 }}>
+              • Sinais factuais auditáveis: observações de repositório e eventos de execução
+            </span>
+          </div>
+
+          {/* Filters for Activity Feed */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+            {/* Filter by Project */}
+            <select
+              value={activityProjectFilter}
+              onChange={(e) => setActivityProjectFilter(e.target.value)}
+              style={{
+                backgroundColor: "#0f172a",
+                color: "#f8fafc",
+                border: "1px solid #334155",
+                borderRadius: "4px",
+                padding: "4px 8px",
+                fontSize: "11px",
+                cursor: "pointer",
+              }}
+            >
+              <option value="TODOS">Todos os Projetos</option>
+              {data?.projects?.map((p) => (
+                <option key={p.project_id} value={p.project_id}>
+                  {p.display_name || p.project_id}
+                </option>
+              ))}
+            </select>
+
+            {/* Filter by Type */}
+            <select
+              value={activityTypeFilter}
+              onChange={(e) => setActivityTypeFilter(e.target.value)}
+              style={{
+                backgroundColor: "#0f172a",
+                color: "#f8fafc",
+                border: "1px solid #334155",
+                borderRadius: "4px",
+                padding: "4px 8px",
+                fontSize: "11px",
+                cursor: "pointer",
+              }}
+            >
+              <option value="TODOS">Todos os Tipos de Sinal</option>
+              <option value="REPOSITORY_OBSERVED">Observações de Repositório</option>
+              <option value="TASK_EXPERIENCE_RECORDED">Tarefas e Experiências</option>
+              <option value="AUTONOMOUS_AGENT_VALIDATED">Agentes Validados</option>
+              <option value="OPERATING_MODE_ADOPTED">Modos Operacionais</option>
+            </select>
+
+            {/* Window selector */}
+            <div style={{ display: "flex", backgroundColor: "#1e293b", borderRadius: "4px", padding: "2px", border: "1px solid #334155" }}>
+              {[
+                { label: "1d", val: 1 },
+                { label: "7d", val: 7 },
+                { label: "14d", val: 14 },
+                { label: "30d", val: 30 },
+                { label: "90d", val: 90 },
+              ].map((w) => (
+                <button
+                  key={w.val}
+                  onClick={() => setActivityWindow(w.val)}
+                  style={{
+                    padding: "3px 8px",
+                    borderRadius: "3px",
+                    border: "none",
+                    fontSize: "10px",
+                    cursor: "pointer",
+                    backgroundColor: activityWindow === w.val ? "#0284c7" : "transparent",
+                    color: activityWindow === w.val ? "#ffffff" : "#94a3b8",
+                    fontWeight: activityWindow === w.val ? 700 : 500,
+                  }}
+                >
+                  {w.label}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={fetchActivityFeed}
+              style={{
+                backgroundColor: "#1e293b",
+                color: "#94a3b8",
+                border: "1px solid #334155",
+                borderRadius: "4px",
+                padding: "4px 8px",
+                fontSize: "11px",
+                cursor: "pointer",
+              }}
+            >
+              ↻ Atualizar
+            </button>
+          </div>
+        </div>
+
+        {/* Activity Feed Cards List */}
+        {activityLoading ? (
+          <div style={{ padding: "16px", backgroundColor: "#0f172a", borderRadius: "6px", color: "#94a3b8", fontSize: "12px", border: "1px solid #1e293b" }}>
+            Carregando feed de atividade operacional...
+          </div>
+        ) : activitySignals.length === 0 ? (
+          <div style={{ padding: "16px", backgroundColor: "#0f172a", borderRadius: "6px", color: "#64748b", fontSize: "12px", border: "1px dashed #334155" }}>
+            Nenhum sinal operacional observado na janela selecionada ({activityWindow} dias).
+          </div>
+        ) : (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+              maxHeight: "360px",
+              overflowY: "auto",
+              paddingRight: "6px",
+            }}
+          >
+            {activitySignals.map((sig) => {
+              const isTask = sig.activity_type === "TASK_EXPERIENCE_RECORDED";
+              const isAgent = sig.activity_type === "AUTONOMOUS_AGENT_VALIDATED";
+              const isRepo = sig.activity_type === "REPOSITORY_OBSERVED";
+
+              const badgeBg = isTask ? "rgba(16, 185, 129, 0.15)" : isAgent ? "rgba(192, 132, 252, 0.15)" : isRepo ? "rgba(56, 189, 248, 0.15)" : "rgba(100, 116, 139, 0.15)";
+              const badgeColor = isTask ? "#34d399" : isAgent ? "#c084fc" : isRepo ? "#38bdf8" : "#94a3b8";
+
+              return (
+                <div
+                  key={sig.id}
+                  style={{
+                    backgroundColor: "#0f172a",
+                    border: "1px solid #1e293b",
+                    borderRadius: "6px",
+                    padding: "10px 14px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "12px",
+                  }}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          padding: "2px 6px",
+                          borderRadius: "3px",
+                          backgroundColor: badgeBg,
+                          color: badgeColor,
+                          fontWeight: 700,
+                          fontFamily: "monospace",
+                        }}
+                      >
+                        {sig.activity_type}
+                      </span>
+                      {sig.project_display_name && (
+                        <span style={{ fontSize: "12px", fontWeight: 700, color: "#f1f5f9" }}>
+                          {sig.project_display_name}
+                        </span>
+                      )}
+                      {sig.repository_name && (
+                        <span style={{ fontSize: "11px", color: "#64748b", fontFamily: "monospace" }}>
+                          ({sig.repository_name})
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#cbd5e1", lineHeight: 1.4 }}>
+                      {sig.summary}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px", flexShrink: 0 }}>
+                    <span style={{ fontSize: "11px", color: "#94a3b8", fontFamily: "monospace" }}>
+                      {sig.timestamp ? new Date(sig.timestamp).toUTCString().slice(0, 22) : ""}
+                    </span>
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      {sig.project_id && onSelectProjectForTimeline && (
+                        <button
+                          onClick={() => onSelectProjectForTimeline(sig.project_id!)}
+                          style={{
+                            padding: "2px 6px",
+                            backgroundColor: "#1e293b",
+                            border: "1px solid #334155",
+                            color: "#38bdf8",
+                            borderRadius: "3px",
+                            fontSize: "10px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Linha do Tempo →
+                        </button>
+                      )}
+                      {sig.project_id && onSelectProjectForGraph && (
+                        <button
+                          onClick={() => onSelectProjectForGraph(sig.project_id!)}
+                          style={{
+                            padding: "2px 6px",
+                            backgroundColor: "#1e293b",
+                            border: "1px solid #334155",
+                            color: "#94a3b8",
+                            borderRadius: "3px",
+                            fontSize: "10px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Grafo →
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* SECTION 0C: MAPA OPERACIONAL DA HOLDING (DISTRIBUIÇÃO DOS 34 PROJETOS V0.4) */}
+      <div style={{ marginBottom: "32px" }}>
+        <div
+          style={{
+            fontSize: "13px",
+            fontWeight: 600,
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+            color: "#34d399",
+            marginBottom: "12px",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+          }}
+        >
+          <span>Mapa Operacional da Holding (Status Factual dos {data?.projects?.length || 0} Projetos)</span>
+          <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 400 }}>
+            • Distribuição estrita por evidência observada sem inferência indevida
+          </span>
+        </div>
+
+        {(() => {
+          const projs = data?.projects || [];
+          const hoje = projs.filter((p) => p.operational_activity_state === "ATIVIDADE_HOJE" || p.activity_today > 0);
+          const recente = projs.filter((p) => (p.operational_activity_state === "ATIVIDADE_RECENTE" || p.activity_7d > 0) && !hoje.includes(p));
+          const semAtividade = projs.filter((p) => (p.operational_activity_state === "SEM_ATIVIDADE_NO_PERIODO" || p.observation_count > 0) && !hoje.includes(p) && !recente.includes(p));
+          const semDados = projs.filter((p) => !hoje.includes(p) && !recente.includes(p) && !semAtividade.includes(p));
+
+          return (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                gap: "12px",
+              }}
+            >
+              {/* Coluna 1: Atividade Hoje */}
+              <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderTop: "3px solid #34d399", borderRadius: "6px", padding: "14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: 700, color: "#34d399", textTransform: "uppercase" }}>⚡ Atividade Hoje</span>
+                  <span style={{ fontSize: "14px", fontWeight: 800, color: "#34d399" }}>{hoje.length}</span>
+                </div>
+                <div style={{ fontSize: "10px", color: "#64748b", marginBottom: "10px" }}>
+                  Sinais observados hoje (UTC)
+                </div>
+                {hoje.length === 0 ? (
+                  <div style={{ fontSize: "11px", color: "#475569", fontStyle: "italic" }}>Nenhum projeto com sinal hoje</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    {hoje.map((p) => (
+                      <div key={p.project_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11px", backgroundColor: "#1e293b", padding: "6px 8px", borderRadius: "4px" }}>
+                        <span style={{ fontWeight: 600, color: "#f1f5f9" }}>{p.display_name || p.project_id}</span>
+                        <span style={{ fontSize: "10px", color: "#34d399", fontFamily: "monospace" }}>+{p.activity_today} hoje</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Coluna 2: Atividade Recente */}
+              <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderTop: "3px solid #38bdf8", borderRadius: "6px", padding: "14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: 700, color: "#38bdf8", textTransform: "uppercase" }}>⏱ Atividade Recente</span>
+                  <span style={{ fontSize: "14px", fontWeight: 800, color: "#38bdf8" }}>{recente.length}</span>
+                </div>
+                <div style={{ fontSize: "10px", color: "#64748b", marginBottom: "10px" }}>
+                  Sinais observados nos últimos 7 dias
+                </div>
+                {recente.length === 0 ? (
+                  <div style={{ fontSize: "11px", color: "#475569", fontStyle: "italic" }}>Nenhum projeto adicional recente</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "200px", overflowY: "auto" }}>
+                    {recente.map((p) => (
+                      <div key={p.project_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11px", backgroundColor: "#1e293b", padding: "6px 8px", borderRadius: "4px" }}>
+                        <span style={{ fontWeight: 600, color: "#f1f5f9" }}>{p.display_name || p.project_id}</span>
+                        <span style={{ fontSize: "10px", color: "#38bdf8", fontFamily: "monospace" }}>{p.activity_7d} (7d)</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Coluna 3: Sem Atividade no Período */}
+              <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderTop: "3px solid #94a3b8", borderRadius: "6px", padding: "14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase" }}>○ Sem Atividade no Período</span>
+                  <span style={{ fontSize: "14px", fontWeight: 800, color: "#94a3b8" }}>{semAtividade.length}</span>
+                </div>
+                <div style={{ fontSize: "10px", color: "#64748b", marginBottom: "10px" }}>
+                  Possui telemetria, sem sinais na janela (não inativo)
+                </div>
+                <div style={{ fontSize: "11px", color: "#94a3b8" }}>
+                  {semAtividade.length} projetos monitorados sem novas observações no intervalo.
+                </div>
+              </div>
+
+              {/* Coluna 4: Dados Insuficientes */}
+              <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderTop: "3px solid #64748b", borderRadius: "6px", padding: "14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: 700, color: "#64748b", textTransform: "uppercase" }}>? Dados Insuficientes</span>
+                  <span style={{ fontSize: "14px", fontWeight: 800, color: "#64748b" }}>{semDados.length}</span>
+                </div>
+                <div style={{ fontSize: "10px", color: "#64748b", marginBottom: "10px" }}>
+                  Sem telemetria registrada no PUB Neural
+                </div>
+                <div style={{ fontSize: "11px", color: "#64748b" }}>
+                  {semDados.length} projetos cadastrados aguardando ingestão inicial de telemetria.
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
       {/* SECTION 1: PROJETOS DA HOLDING (CATÁLOGO CANÔNICO & ATIVIDADE) */}
       <div style={{ marginBottom: "32px" }}>
         <div
@@ -674,11 +1081,13 @@ export function OverviewView({
                 border: "1px solid #334155",
               }}
             >
-              {(["TODOS", "ATIVOS", "EM_DESENVOLVIMENTO", "ARQUIVADOS", "SEM_OBSERVACOES"] as FilterStatus[]).map((st) => {
+              {(["TODOS", "ATIVOS", "ATIVIDADE_HOJE", "ATIVIDADE_RECENTE", "SEM_ATIVIDADE", "ARQUIVADOS", "SEM_OBSERVACOES"] as FilterStatus[]).map((st) => {
                 const labels: Record<FilterStatus, string> = {
                   TODOS: "Todos",
                   ATIVOS: "Ativos",
-                  EM_DESENVOLVIMENTO: "Com Atividade",
+                  ATIVIDADE_HOJE: "Hoje ⚡",
+                  ATIVIDADE_RECENTE: "Recente (7d)",
+                  SEM_ATIVIDADE: "Sem Atividade no Período",
                   ARQUIVADOS: "Arquivados",
                   SEM_OBSERVACOES: "Sem Obs.",
                 };
@@ -778,6 +1187,81 @@ export function OverviewView({
                     </div>
 
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
+                      {/* Operational Activity State Badge V0.4 */}
+                      {(() => {
+                        const actState = proj.operational_activity_state || (proj.activity_today > 0 ? "ATIVIDADE_HOJE" : proj.activity_7d > 0 ? "ATIVIDADE_RECENTE" : proj.observation_count > 0 ? "SEM_ATIVIDADE_NO_PERIODO" : "DADOS_INSUFICIENTES");
+                        if (actState === "ATIVIDADE_HOJE") {
+                          return (
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                backgroundColor: "rgba(16, 185, 129, 0.2)",
+                                color: "#34d399",
+                                border: "1px solid rgba(16, 185, 129, 0.4)",
+                                fontWeight: 700,
+                              }}
+                              title="Sinais operacionais concretos observados hoje (UTC)"
+                            >
+                              ⚡ Atividade Hoje
+                            </span>
+                          );
+                        }
+                        if (actState === "ATIVIDADE_RECENTE") {
+                          return (
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                backgroundColor: "rgba(56, 189, 248, 0.15)",
+                                color: "#38bdf8",
+                                border: "1px solid rgba(56, 189, 248, 0.3)",
+                                fontWeight: 600,
+                              }}
+                              title="Sinais operacionais concretos observados nos últimos 7 dias"
+                            >
+                              ⏱ Atividade Recente
+                            </span>
+                          );
+                        }
+                        if (actState === "SEM_ATIVIDADE_NO_PERIODO") {
+                          return (
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                backgroundColor: "rgba(100, 116, 139, 0.15)",
+                                color: "#94a3b8",
+                                border: "1px solid rgba(100, 116, 139, 0.3)",
+                                fontWeight: 500,
+                              }}
+                              title="Sem novos sinais observados no período da janela (não indica inatividade do projeto)"
+                            >
+                              ○ Sem Atividade no Período
+                            </span>
+                          );
+                        }
+                        return (
+                          <span
+                            style={{
+                              fontSize: "10px",
+                              padding: "2px 8px",
+                              borderRadius: "4px",
+                              backgroundColor: "rgba(71, 85, 105, 0.2)",
+                              color: "#64748b",
+                              border: "1px solid rgba(71, 85, 105, 0.3)",
+                              fontWeight: 500,
+                            }}
+                            title="Sem telemetria registrada no PUB Neural"
+                          >
+                            ? Dados Insuficientes
+                          </span>
+                        );
+                      })()}
+
                       {/* Epistemological Status Badge - 3 Friendly Levels */}
                       {(() => {
                         const hp = data?.holding_projects?.find(

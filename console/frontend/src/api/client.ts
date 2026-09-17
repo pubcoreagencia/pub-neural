@@ -15,6 +15,7 @@ import type {
   HoldingProjectItemDTO,
   ProjectRepositoryAssociationDTO,
   GovernanceOntologyQueuesDTO,
+  ActivityListResponseDTO,
 } from "./types";
 
 const SESSION_STORAGE_KEY = "pub_neural_session_token";
@@ -253,5 +254,36 @@ export const NeuralAPI = {
     };
   }> {
     return fetchApi(`/projects/${encodeURIComponent(projectId)}`);
+  },
+
+  async getActivity(params?: {
+    windowDays?: number;
+    projectId?: string;
+    repositoryId?: string;
+    activityType?: string;
+    limit?: number;
+  }): Promise<ActivityListResponseDTO> {
+    const searchParams = new URLSearchParams();
+    if (params?.windowDays) searchParams.set("window_days", String(params.windowDays));
+    if (params?.projectId) searchParams.set("project_id", params.projectId);
+    if (params?.repositoryId) searchParams.set("repository_id", params.repositoryId);
+    if (params?.activityType) searchParams.set("activity_type", params.activityType);
+    if (params?.limit) searchParams.set("limit", String(params.limit));
+    const qs = searchParams.toString();
+    return fetchApi<ActivityListResponseDTO>(`/activity${qs ? `?${qs}` : ""}`);
+  },
+
+  async getProjectActivity(projectId: string, windowDays: number = 14, limit: number = 50): Promise<ActivityListResponseDTO> {
+    const searchParams = new URLSearchParams();
+    searchParams.set("window_days", String(windowDays));
+    searchParams.set("limit", String(limit));
+    return fetchApi<ActivityListResponseDTO>(`/projects/${encodeURIComponent(projectId)}/activity?${searchParams.toString()}`);
+  },
+
+  async getRepositoryActivity(repositoryId: string, windowDays: number = 14, limit: number = 50): Promise<ActivityListResponseDTO> {
+    const searchParams = new URLSearchParams();
+    searchParams.set("window_days", String(windowDays));
+    searchParams.set("limit", String(limit));
+    return fetchApi<ActivityListResponseDTO>(`/repositories/${encodeURIComponent(repositoryId)}/activity?${searchParams.toString()}`);
   },
 };
