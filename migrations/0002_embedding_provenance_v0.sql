@@ -117,7 +117,8 @@ CREATE OR REPLACE FUNCTION pub_neural.embedding_provenance_compatible(
     p_model_version VARCHAR,
     p_dimension INTEGER,
     p_corpus_version VARCHAR,
-    p_index_version VARCHAR
+    p_index_version VARCHAR,
+    p_normalization_config JSONB
 ) RETURNS BOOLEAN
 LANGUAGE SQL
 STABLE
@@ -135,15 +136,16 @@ AS $$
           AND p.dimension = p_dimension
           AND p.corpus_version = p_corpus_version
           AND p.index_version = p_index_version
+          AND p.normalization_config = p_normalization_config
     );
 $$;
 
 REVOKE ALL ON FUNCTION pub_neural.embedding_provenance_compatible(
-    UUID, VARCHAR, VARCHAR, VARCHAR, INTEGER, VARCHAR, VARCHAR
+    UUID, VARCHAR, VARCHAR, VARCHAR, INTEGER, VARCHAR, VARCHAR, JSONB
 ) FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION pub_neural.embedding_provenance_compatible(
-    UUID, VARCHAR, VARCHAR, VARCHAR, INTEGER, VARCHAR, VARCHAR
+    UUID, VARCHAR, VARCHAR, VARCHAR, INTEGER, VARCHAR, VARCHAR, JSONB
 ) TO pub_neural_app, pub_neural_projector, pub_neural_admin, pub_neural_ceo;
 
 -- Schema registry records the compatibility boundary.
