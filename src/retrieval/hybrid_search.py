@@ -67,6 +67,11 @@ class HybridSearchEngine:
             return []
 
         active_model_id = model_id or self.provider.model_id
+        provider_id = self.provider.provider_id
+        model_version = self.provider.model_version
+        dimension = self.provider.dimension
+        corpus_version = self.provider.corpus_version
+        index_version = self.provider.index_version
         conn = psycopg2.connect(self.db_url, cursor_factory=RealDictCursor)
         conn.autocommit = False
 
@@ -86,7 +91,8 @@ class HybridSearchEngine:
                 # 3. Retrieve Dense Vector Candidates via neural_vectors + neural_nodes / neural_evidence
                 # Cosine distance: embedding <=> query_vec
                 query_vec = self.provider.generate_embedding(query)
-                dense_results = self._retrieve_dense(cur, query_vec, active_model_id, trust_zone, project_id)
+                provenance_id = self._resolve_compatible_provenance(cur, provider_id, active_model_id, model_version, dimension, corpus_version, index_version)
+                dense_results = self._retrieve_dense(cur, query_vec, active_model_id, provenance_id, trust_zone, project_id)
 
                 # 4. Perform Reciprocal Rank Fusion (RRF)
                 fused = self._fuse_rrf(lexical_results, dense_results)
@@ -126,6 +132,12 @@ class HybridSearchEngine:
                 return self._retrieve_dense(cur, query_vec, active_model_id, trust_zone, project_id)
         finally:
             conn.close()
+
+    def _resolve_compatible_provenance(self, cur, provider: str, model: str, model_version: Optional[str], dimension: int, corpus_version: str, index_version: str) -> str:
+        cur.execute("""SELECT id FROM pub_neural.embedding_provenance WHERE status='ACTIVE' AND provider=%s AND model=%s AND model_version IS NOT DISTINCT FROM %s AND dimension=%s AND corpus_version=%s AND index_version=%s ORDER BY created_at DESC LIMIT 1;""",(provider,model,model_version,dimension,corpus_version,index_version))
+        row=cur.fetchone()
+        if not row: raise RuntimeError("Dense retrieval blocked: no ACTIVE compatible embedding provenance.")
+        return str(row["id"])
 
     def _retrieve_lexical(
         self,
@@ -193,6 +205,7 @@ class HybridSearchEngine:
         cur,
         query_vec: List[float],
         model_id: str,
+        provenance_id: str,
         trust_zone: Optional[str],
         project_id: Optional[str]
     ) -> List[Dict[str, Any]]:
@@ -220,12 +233,13 @@ class HybridSearchEngine:
             LEFT JOIN pub_neural.neural_evidence e 
                 ON v.target_type = 'EVIDENCE' AND v.target_id = e.id::text
             WHERE v.model_id = %s
+              AND v.embedding_provenance_id = %s::uuid
               AND (
                   (v.target_type = 'NODE' AND n.is_active = TRUE)
                   OR (v.target_type = 'EVIDENCE' AND e.id IS NOT NULL)
               )
         """
-        params = [query_vec, model_id]
+        params = [query_vec, model_id, provenance_id]
 
         if trust_zone:
             sql += " AND v.trust_zone = %s"
