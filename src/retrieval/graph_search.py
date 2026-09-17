@@ -51,6 +51,7 @@ class GraphSearchEngine:
         trust_zone: Optional[str] = None,
         project_id: Optional[str] = None,
         limit: int = 10,
+        cursor: Optional[Any] = None,
         in_memory_nodes: Optional[List[Dict[str, Any]]] = None,
         in_memory_edges: Optional[List[Dict[str, Any]]] = None,
     ) -> List[GraphSearchResult]:
@@ -70,8 +71,9 @@ class GraphSearchEngine:
                 tokens, in_memory_nodes, in_memory_edges, trust_zone, project_id, limit
             )
 
-        if self.conn_or_cur:
-            return self._search_database(tokens, trust_zone, project_id, limit)
+        active_cur = cursor or self.conn_or_cur
+        if active_cur:
+            return self._search_database(tokens, trust_zone, project_id, limit, active_cur)
 
         return []
 
@@ -185,9 +187,9 @@ class GraphSearchEngine:
         trust_zone: Optional[str],
         project_id: Optional[str],
         limit: int,
+        cur: Any,
     ) -> List[GraphSearchResult]:
         """Query PostgreSQL neural_nodes and neural_edges using CTE graph expansion."""
-        cur = self.conn_or_cur
         query_pattern = "%" + "%".join(tokens) + "%"
 
         sql = """

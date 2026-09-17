@@ -157,6 +157,7 @@ class HybridSearchEngine:
                         trust_zone=trust_zone,
                         project_id=project_id,
                         limit=self.graph_limit,
+                        cursor=cur,
                     )
 
                 # 5. Perform 3-Way Reciprocal Rank Fusion (RRF)

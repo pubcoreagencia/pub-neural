@@ -53,6 +53,70 @@ class ResearchGraphIntelligence:
         self.in_edges: Dict[str, List[Tuple[str, str, float]]] = {}   # v -> [(u, rel, weight)]
 
     @classmethod
+    def from_database(
+        cls,
+        cursor: Any,
+        project_id: Optional[str] = None,
+        trust_zone: Optional[str] = None,
+        limit: int = 500,
+    ) -> ResearchGraphIntelligence:
+        """Construct research intelligence from live canonical PostgreSQL neural_nodes and neural_edges."""
+        intel = cls()
+
+        node_sql = """
+            SELECT id, title, entity_type, summary, content, trust_zone, project_id, confidence_score
+            FROM pub_neural.neural_nodes
+            WHERE is_active = TRUE
+        """
+        node_params = []
+        if trust_zone:
+            node_sql += " AND trust_zone = %s"
+            node_params.append(trust_zone)
+        if project_id:
+            node_sql += " AND (project_id = %s OR project_id IS NULL)"
+            node_params.append(project_id)
+        node_sql += " LIMIT %s;"
+        node_params.append(limit)
+
+        cursor.execute(node_sql, tuple(node_params))
+        node_rows = cursor.fetchall()
+
+        node_ids = set()
+        for r in node_rows:
+            nid = str(r["id"])
+            node_ids.add(nid)
+            intel.nodes[nid] = {
+                "title": r["title"],
+                "entity_type": str(r["entity_type"]),
+                "summary": r.get("summary"),
+                "content": r.get("content"),
+                "confidence_score": float(r.get("confidence_score", 1.0)),
+                "project_id": r.get("project_id"),
+                "trust_zone": r.get("trust_zone"),
+            }
+            intel.out_edges[nid] = []
+            intel.in_edges[nid] = []
+
+        if node_ids:
+            edge_sql = """
+                SELECT source_id, target_id, relation_type, weight
+                FROM pub_neural.neural_edges
+                WHERE is_active = TRUE
+                  AND source_id = ANY(%s)
+                  AND target_id = ANY(%s);
+            """
+            cursor.execute(edge_sql, (list(node_ids), list(node_ids)))
+            edge_rows = cursor.fetchall()
+            for er in edge_rows:
+                u, v = str(er["source_id"]), str(er["target_id"])
+                rel = str(er["relation_type"])
+                w = float(er.get("weight", 1.0))
+                intel.out_edges.setdefault(u, []).append((v, rel, w))
+                intel.in_edges.setdefault(v, []).append((u, rel, w))
+
+        return intel
+
+    @classmethod
     def from_normalized_graph(cls, normalized_graph: Any) -> ResearchGraphIntelligence:
         """Construct research intelligence directly from NormalizedGraph."""
         intel = cls()
