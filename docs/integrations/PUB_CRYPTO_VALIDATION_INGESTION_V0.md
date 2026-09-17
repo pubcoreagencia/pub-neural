@@ -99,3 +99,12 @@ No test `TRADING_VALIDATION` event was persisted. The event count remains unchan
 The graph projector reports HEALTHY but its checkpoint is global sequence 7. No PUB Crypto validation event has therefore been observed by the projector yet.
 
 The next production-grade gate is a governed actor-registration event followed by out-of-band machine-secret provisioning. Do not bypass this with a direct `trusted_actors` insert.
+
+
+## Projector gate result — 2026-09-17
+
+A live projector execution was attempted for `graph_projector`, sequences 8 through 39. The projector remained at sequence 7 and transitioned to `STALLED` on sequence 8 with `MALFORMED`.
+
+Sequence 8 is a legacy `REPOSITORY_OBSERVED` event whose payload shape does not satisfy the current reducer contract. The reducer requires `provenance.delivery_id`, `provenance.payload_hash`, and nested payload fields, while sequence 8 stores those observation fields in the event payload at the top level. This blocks the graph projector before any PUB Crypto event can be consumed.
+
+This is a PUB Neural ingestion/projector contract issue, not a PUB Crypto validation issue. It must be corrected or explicitly migrated before the first PUB Crypto E2E projection proof.
