@@ -44,17 +44,14 @@ export function GraphCanvasForce({
     epistemicState: "ALL",
   });
 
-  // 1a. Load Canonical Git Topology: pubcoreagencia/pubcore@main
+  // 1a. Load Canonical Git Topology: PUB Core Holding (All 55 Repositories)
   const loadGitTopology = useCallback(async () => {
     setLoading(true);
-    setLoadingStatus("Traversing Git Topology (pubcoreagencia/pubcore@main)...");
+    setLoadingStatus("Traversing PUB Core Holding (55 repositories)...");
     setError(null);
     try {
+      // Empty repository param loads organization root + all 55 repositories
       const data: GraphResponseDTO = await NeuralAPI.getRepositoryGraph({
-        repository: "pubcoreagencia/pubcore",
-        branch: "main",
-        path: "",
-        depth: 1,
         limit: 100,
       });
       const nodes: ForceNodeObject[] = data.nodes.map((n) => ({ ...n }));
@@ -66,8 +63,8 @@ export function GraphCanvasForce({
       setRawNodes(nodes);
       setRawLinks(links);
     } catch (e: any) {
-      console.error("Failed to load Git topology", e);
-      setError(e.message || "Failed to load Git topology.");
+      console.error("Failed to load Git organization topology", e);
+      setError(e.message || "Failed to load Git organization topology.");
     } finally {
       setLoading(false);
     }
@@ -104,30 +101,37 @@ export function GraphCanvasForce({
     }
   }, [sourceMode, loadGitTopology, loadBackbone]);
 
-  // 2. Incremental Expansion on double click or manual trigger
+  // 2. Incremental Expansion on click, double click or manual trigger
   const expandNode = useCallback(
     async (nodeId: string) => {
       setLoading(true);
-      setLoadingStatus(`Expanding neighborhood for ${nodeId}...`);
+      setLoadingStatus(`Expanding node ${nodeId}...`);
       try {
         let data: GraphResponseDTO;
         if (nodeId.startsWith("dir:")) {
           // Format: dir:repo@branch:path
-          const subPath = nodeId.split(":").slice(2).join(":");
+          const parts = nodeId.split(":");
+          const repoBranch = parts[1];
+          const subPath = parts.slice(2).join(":");
+          const [repoName, branchName] = repoBranch.split("@");
           data = await NeuralAPI.getRepositoryGraph({
-            repository: "pubcoreagencia/pubcore",
-            branch: "main",
+            repository: repoName,
+            branch: branchName || "main",
             path: subPath,
             depth: 1,
             limit: 50,
           });
         } else if (nodeId.startsWith("repo:")) {
+          const repoFull = nodeId.replace("repo:", "");
           data = await NeuralAPI.getRepositoryGraph({
-            repository: "pubcoreagencia/pubcore",
-            branch: "main",
+            repository: repoFull,
             path: "",
             depth: 1,
             limit: 50,
+          });
+        } else if (nodeId.startsWith("org:")) {
+          data = await NeuralAPI.getRepositoryGraph({
+            limit: 100,
           });
         } else {
           data = await NeuralAPI.getNeighborhood(nodeId, 1, { limit: 50 });

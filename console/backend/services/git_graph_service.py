@@ -1,15 +1,16 @@
 """
 Git Graph Service for PUB Neural Console V0.
 Provides canonical Git topology views, directory tree expansion, and object details
-anchored in pubcoreagencia/pubcore@main.
+anchored in pubcoreagencia (55 repositories) and pubcoreagencia/pubcore@main.
 
 Enforces:
-- pubcoreagencia/pubcore@main as the sovereign source of truth for versioned code topology.
+- pubcoreagencia as the sovereign organization source of truth for 55 versioned repositories.
 - Exclusion of secrets (.env, tokens, private keys) while preserving .env.example.
-- Incremental Level of Detail (LOD) expansion (Repository -> Commits/Roots -> Dirs -> Files).
+- Incremental Level of Detail (LOD) expansion (Organization -> 55 Repositories -> Commits -> Dirs -> Files).
 - Deterministic node and edge IDs.
 - Strict mapping to canonical Postgres ENUMs:
-    - REPOSITORY -> REPOSITORY
+    - Organization -> ORGANIZATION
+    - Repository -> REPOSITORY
     - Directory -> CONCEPT
     - Documentation -> DOCUMENT
     - Source/Code -> SOURCE
@@ -31,6 +32,7 @@ from console.backend.models import (
     GraphResponseDTO,
 )
 
+CANONICAL_ORG = "pubcoreagencia"
 CANONICAL_REPO = "pubcoreagencia/pubcore"
 DEFAULT_BRANCH = "main"
 
@@ -45,8 +47,9 @@ SECRET_PATTERNS = [
 
 DOC_EXTENSIONS = {".md", ".txt", ".rst", ".adoc"}
 
-# In-memory tree cache with TTL (15 minutes)
+# In-memory caches with TTL (15 minutes)
 _TREE_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]], str]] = {}
+_ORG_REPOS_CACHE: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
 CACHE_TTL_SECONDS = 900.0
 
 
@@ -79,6 +82,59 @@ def get_github_token() -> Optional[str]:
     except Exception:
         pass
     return None
+
+
+def fetch_organization_repos(org: str = CANONICAL_ORG) -> List[Dict[str, Any]]:
+    """
+    Fetch all repositories for the organization/user from GitHub API.
+    Returns list of repo dicts.
+    """
+    now = time.time()
+    if org in _ORG_REPOS_CACHE:
+        cached_time, cached_repos = _ORG_REPOS_CACHE[org]
+        if now - cached_time < CACHE_TTL_SECONDS:
+            return cached_repos
+
+    # 1. Try gh CLI first
+    try:
+        proc = subprocess.run(
+            ["gh", "api", f"users/{org}/repos?per_page=100"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=15,
+        )
+        if proc.returncode == 0:
+            repos = json.loads(proc.stdout)
+            if isinstance(repos, list):
+                _ORG_REPOS_CACHE[org] = (now, repos)
+                return repos
+    except Exception:
+        pass
+
+    # 2. Fallback to urllib
+    url = f"https://api.github.com/users/{org}/repos?per_page=100"
+    headers = {
+        "User-Agent": "PUB-Neural-GitGraph/1.0",
+        "Accept": "application/vnd.github.v3+json",
+    }
+    token = get_github_token()
+    if token:
+        headers["Authorization"] = f"token {token}"
+
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            repos = json.loads(resp.read().decode("utf-8"))
+            if isinstance(repos, list):
+                _ORG_REPOS_CACHE[org] = (now, repos)
+                return repos
+    except Exception as e:
+        if org in _ORG_REPOS_CACHE:
+            return _ORG_REPOS_CACHE[org][1]
+        raise RuntimeError(f"Failed to fetch repositories for {org}: {e}") from e
+
+    return []
 
 
 def fetch_git_tree_remote(
@@ -139,6 +195,152 @@ def fetch_git_tree_remote(
         raise RuntimeError(f"Failed to fetch Git tree for {repo}@{branch}: {e}") from e
 
 
+def get_organization_graph(
+    org: str = CANONICAL_ORG,
+    include_archived: bool = True,
+    search: str = "",
+    limit: int = 100,
+) -> GraphResponseDTO:
+    """
+    Level 0 of the Git Graph:
+    Renders ORG:pubcoreagencia as the sovereign root, connected to all ~55 REPOSITORIES.
+    Also detects and renders evidenced cross-repository unification/dependency links.
+    """
+    repos_raw = fetch_organization_repos(org)
+    org_node_id = f"org:{org}"
+
+    nodes: List[GraphNodeDTO] = []
+    edges: List[GraphEdgeDTO] = []
+    seen_nodes: Set[str] = set()
+    seen_edges: Set[str] = set()
+
+    # 1. Organization Root Node
+    seen_nodes.add(org_node_id)
+    nodes.append(
+        GraphNodeDTO(
+            id=org_node_id,
+            entity_type="ORGANIZATION",
+            title="PUB CORE HOLDING",
+            slug=org,
+            summary=f"PUB Core Holding Organization ({len(repos_raw)} versioned repositories)",
+            promotion_state="INSTITUTIONAL",
+            conflict_state="RESOLVED",
+            confidence_score=1.0,
+            valid_from="2026-01-01T00:00:00Z",
+            valid_until=None,
+            trust_zone="tz_internal_holding",
+            project_id="pub-core",
+            evidence_count=len(repos_raw),
+        )
+    )
+
+    # Filter repos
+    filtered_repos = []
+    for r in repos_raw:
+        if not include_archived and r.get("archived", False):
+            continue
+        if search:
+            q = search.lower()
+            name_m = q in r.get("name", "").lower()
+            desc_m = q in (r.get("description") or "").lower()
+            if not (name_m or desc_m):
+                continue
+        filtered_repos.append(r)
+
+    # Sort repos: active first, then by name
+    filtered_repos.sort(key=lambda x: (1 if x.get("archived") else 0, x.get("name", "").lower()))
+
+    # Build repo nodes
+    for r in filtered_repos[:limit]:
+        repo_name = r.get("name", "")
+        repo_full = r.get("full_name", f"{org}/{repo_name}")
+        default_br = r.get("default_branch", DEFAULT_BRANCH)
+        is_archived = bool(r.get("archived", False))
+        size_kb = r.get("size", 0)
+        desc = r.get("description") or f"Repository {repo_full}"
+
+        repo_node_id = f"repo:{repo_full}"
+        seen_nodes.add(repo_node_id)
+        nodes.append(
+            GraphNodeDTO(
+                id=repo_node_id,
+                entity_type="REPOSITORY",
+                title=f"📦 {repo_name}" if not is_archived else f"📦 [ARCHIVED] {repo_name}",
+                slug=repo_name,
+                summary=f"{desc} (branch: {default_br}, {size_kb} KB)",
+                promotion_state="VALIDATED" if not is_archived else "ADOPTED",
+                conflict_state="RESOLVED",
+                confidence_score=1.0,
+                valid_from="2026-01-01T00:00:00Z",
+                valid_until=None,
+                trust_zone="tz_internal_holding",
+                project_id="pub-core",
+                evidence_count=size_kb,
+            )
+        )
+
+        # Edge from Org -> Repo
+        edge_id = f"edge:{org_node_id}:{repo_node_id}"
+        seen_edges.add(edge_id)
+        edges.append(
+            GraphEdgeDTO(
+                id=edge_id,
+                source_id=org_node_id,
+                target_id=repo_node_id,
+                relation_type="CONTAINS",
+                weight=1.0,
+                is_bidirectional=False,
+                trust_zone="tz_internal_holding",
+                is_active=True,
+                association_status="CONFIRMED",
+                classification_source="github_org",
+                classification_confidence=1.0,
+                classification_reason=f"Repository belongs to organization {org}",
+            )
+        )
+
+    # 2. Cross-Repository Evidenced Relations
+    # Detect documented unification/dependency patterns from repository descriptions
+    unification_pattern = re.compile(r"https://github\.com/pubcoreagencia/([a-zA-Z0-9_\-\.]+)")
+    for r in filtered_repos:
+        desc = r.get("description") or ""
+        match = unification_pattern.search(desc)
+        if match:
+            target_repo_name = match.group(1).rstrip(")")
+            source_repo_node_id = f"repo:{org}/{r.get('name')}"
+            target_repo_node_id = f"repo:{org}/{target_repo_name}"
+
+            if source_repo_node_id in seen_nodes and target_repo_node_id in seen_nodes:
+                cross_edge_id = f"edge:{source_repo_node_id}:{target_repo_node_id}"
+                if cross_edge_id not in seen_edges:
+                    seen_edges.add(cross_edge_id)
+                    edges.append(
+                        GraphEdgeDTO(
+                            id=cross_edge_id,
+                            source_id=source_repo_node_id,
+                            target_id=target_repo_node_id,
+                            relation_type="DERIVED_FROM",
+                            weight=0.95,
+                            is_bidirectional=False,
+                            trust_zone="tz_internal_holding",
+                            is_active=True,
+                            association_status="CONFIRMED",
+                            classification_source="git_manifest_provenance",
+                            classification_confidence=0.95,
+                            classification_reason=f"Evidenced cross-repository consolidation: {desc}",
+                        )
+                    )
+
+    return GraphResponseDTO(
+        nodes=nodes,
+        edges=edges,
+        center_node_id=org_node_id,
+        hop_depth=1,
+        total_nodes=len(nodes),
+        total_edges=len(edges),
+    )
+
+
 def get_git_topology(
     repo: str = CANONICAL_REPO,
     branch: str = DEFAULT_BRANCH,
@@ -148,11 +350,19 @@ def get_git_topology(
 ) -> GraphResponseDTO:
     """
     Build a bounded Git topology graph starting from base_path up to depth hops.
+    If repo is empty or matches organization root, delegates to get_organization_graph.
     LOD Principle:
     - Root of repo: `repo:{repo}`
     - Base path == "": Shows Root, Root Commit, and immediate children (depth=1: top-level dirs & files).
     - Expanding a directory expands only its immediate children.
     """
+    if not repo or repo == CANONICAL_ORG or repo.lower() in ("org", "pubcoreagencia"):
+        return get_organization_graph(org=CANONICAL_ORG, limit=limit)
+
+    # Normalize repo name if short
+    if "/" not in repo:
+        repo = f"{CANONICAL_ORG}/{repo}"
+
     tree, root_sha = fetch_git_tree_remote(repo, branch)
 
     # Clean base_path
@@ -171,7 +381,28 @@ def get_git_topology(
     else:
         center_node_id = f"dir:{repo}@{branch}:{base_path}"
 
-    # Always include the Repository Root Node
+    # Always include the Organization Root Node to anchor the tree
+    org_node_id = f"org:{CANONICAL_ORG}"
+    seen_nodes.add(org_node_id)
+    nodes.append(
+        GraphNodeDTO(
+            id=org_node_id,
+            entity_type="ORGANIZATION",
+            title="PUB CORE HOLDING",
+            slug=CANONICAL_ORG,
+            summary="PUB Core Holding Organization",
+            promotion_state="INSTITUTIONAL",
+            conflict_state="RESOLVED",
+            confidence_score=1.0,
+            valid_from="2026-01-01T00:00:00Z",
+            valid_until=None,
+            trust_zone="tz_internal_holding",
+            project_id="pub-core",
+            evidence_count=55,
+        )
+    )
+
+    # Include the Repository Root Node
     repo_node_id = f"repo:{repo}"
     short_repo = repo.split("/")[-1]
     if repo_node_id not in seen_nodes:
@@ -180,7 +411,7 @@ def get_git_topology(
             GraphNodeDTO(
                 id=repo_node_id,
                 entity_type="REPOSITORY",
-                title=f"Repository: {repo}",
+                title=f"📦 {short_repo}",
                 slug=short_repo,
                 summary=f"Canonical Git repository {repo} (branch: {branch})",
                 promotion_state="VALIDATED",
@@ -193,6 +424,27 @@ def get_git_topology(
                 evidence_count=len(tree),
             )
         )
+
+        # Edge from Org to Repo
+        edge_org_repo = f"edge:{org_node_id}:{repo_node_id}"
+        if edge_org_repo not in seen_edges:
+            seen_edges.add(edge_org_repo)
+            edges.append(
+                GraphEdgeDTO(
+                    id=edge_org_repo,
+                    source_id=org_node_id,
+                    target_id=repo_node_id,
+                    relation_type="CONTAINS",
+                    weight=1.0,
+                    is_bidirectional=False,
+                    trust_zone="tz_internal_holding",
+                    is_active=True,
+                    association_status="CONFIRMED",
+                    classification_source="git",
+                    classification_confidence=1.0,
+                    classification_reason=f"Repository {repo} in organization",
+                )
+            )
 
     # Commit snapshot node
     if root_sha:
@@ -373,18 +625,59 @@ def get_git_topology(
 
 def get_git_node_detail(node_id: str) -> Optional[Dict[str, Any]]:
     """
-    Provide deep inspection details for a Git node (Repo, Commit, Directory, or File).
+    Provide deep inspection details for a Git node (Org, Repo, Commit, Directory, or File).
     """
+    if node_id.startswith("org:"):
+        org = node_id.replace("org:", "")
+        repos = fetch_organization_repos(org)
+        active_count = sum(1 for r in repos if not r.get("archived", False))
+        archived_count = len(repos) - active_count
+        return {
+            "id": node_id,
+            "entity_type": "ORGANIZATION",
+            "title": "PUB CORE HOLDING",
+            "slug": org,
+            "summary": f"PUB Core Holding Organization ({len(repos)} repositories: {active_count} active, {archived_count} archived)",
+            "content": f"Organization: https://github.com/{org}\nTotal Repositories: {len(repos)}\nActive: {active_count}\nArchived: {archived_count}\nAuthority: Sovereign Codebase Portfolio",
+            "promotion_state": "INSTITUTIONAL",
+            "promotion_reason": "Sovereign Holding Organization",
+            "conflict_state": "RESOLVED",
+            "confidence_score": 1.0,
+            "valid_from": "2026-01-01T00:00:00Z",
+            "valid_until": None,
+            "trust_zone": "tz_internal_holding",
+            "project_id": "pub-core",
+            "is_active": True,
+            "originating_event_id": "00000000-0000-0000-0000-000000000001",
+            "evidence": [],
+            "git_metadata": {
+                "organization": org,
+                "total_repositories": len(repos),
+                "active_repositories": active_count,
+                "archived_repositories": archived_count,
+                "github_url": f"https://github.com/{org}",
+            },
+        }
+
     if node_id.startswith("repo:"):
         repo = node_id.replace("repo:", "")
+        if "/" not in repo:
+            repo = f"{CANONICAL_ORG}/{repo}"
+        repo_name = repo.split("/")[-1]
+        repos = fetch_organization_repos(CANONICAL_ORG)
+        info = next((r for r in repos if r.get("name") == repo_name), {})
+        default_br = info.get("default_branch", DEFAULT_BRANCH)
+        is_archived = info.get("archived", False)
+        desc = info.get("description") or f"Repository {repo}"
+
         return {
             "id": node_id,
             "entity_type": "REPOSITORY",
             "title": f"Repository: {repo}",
-            "slug": repo.split("/")[-1],
-            "summary": f"Canonical versioned source of truth repository: {repo}",
-            "content": f"Repository URL: https://github.com/{repo}\nCanonical Branch: {DEFAULT_BRANCH}\nRole: Sovereign Codebase Truth",
-            "promotion_state": "VALIDATED",
+            "slug": repo_name,
+            "summary": desc,
+            "content": f"Repository URL: https://github.com/{repo}\nDefault Branch: {default_br}\nArchived: {is_archived}\nSize: {info.get('size', 0)} KB\nRole: Versioned Git Repository",
+            "promotion_state": "VALIDATED" if not is_archived else "ADOPTED",
             "promotion_reason": "Canonical Source of Truth",
             "conflict_state": "RESOLVED",
             "confidence_score": 1.0,
@@ -397,13 +690,15 @@ def get_git_node_detail(node_id: str) -> Optional[Dict[str, Any]]:
             "evidence": [],
             "git_metadata": {
                 "repository": repo,
-                "branch": DEFAULT_BRANCH,
+                "name": repo_name,
+                "branch": default_br,
+                "archived": is_archived,
+                "size_kb": info.get("size", 0),
                 "github_url": f"https://github.com/{repo}",
             },
         }
 
     if node_id.startswith("commit:"):
-        # Format: commit:repo@sha
         match = re.match(r"^commit:([^@]+)@(.+)$", node_id)
         if not match:
             return None
@@ -434,7 +729,6 @@ def get_git_node_detail(node_id: str) -> Optional[Dict[str, Any]]:
         }
 
     if node_id.startswith("dir:"):
-        # Format: dir:repo@branch:path
         match = re.match(r"^dir:([^@]+)@([^:]+):(.+)$", node_id)
         if not match:
             return None
@@ -467,7 +761,6 @@ def get_git_node_detail(node_id: str) -> Optional[Dict[str, Any]]:
         }
 
     if node_id.startswith("file:"):
-        # Format: file:repo@branch:path
         match = re.match(r"^file:([^@]+)@([^:]+):(.+)$", node_id)
         if not match:
             return None

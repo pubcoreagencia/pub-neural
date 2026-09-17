@@ -9,6 +9,7 @@ from console.backend.services.git_graph_service import (
     is_secret_file,
     get_git_topology,
     get_git_node_detail,
+    get_organization_graph,
 )
 
 SAMPLE_TREE = [
@@ -106,6 +107,72 @@ class TestGitGraphService(unittest.TestCase):
         self.assertEqual(detail["git_metadata"]["type"], "blob")
         self.assertEqual(detail["git_metadata"]["sha"], "mc_sha")
 
+    @patch("console.backend.services.git_graph_service.fetch_organization_repos")
+    def test_get_organization_graph(self, mock_repos):
+        mock_repos.return_value = [
+            {
+                "name": "pubcore",
+                "full_name": "pubcoreagencia/pubcore",
+                "default_branch": "main",
+                "archived": False,
+                "size": 3000,
+                "description": "PUB Core system",
+            },
+            {
+                "name": "pub-neural",
+                "full_name": "pubcoreagencia/pub-neural",
+                "default_branch": "main",
+                "archived": False,
+                "size": 800,
+                "description": "PUB Neural Brain",
+            },
+            {
+                "name": "PUB-BEATS",
+                "full_name": "pubcoreagencia/PUB-BEATS",
+                "default_branch": "main",
+                "archived": True,
+                "size": 10000,
+                "description": "ARQUIVADO — Unificado dentro de https://github.com/pubcoreagencia/pub-records (beats/)",
+            },
+            {
+                "name": "pub-records",
+                "full_name": "pubcoreagencia/pub-records",
+                "default_branch": "main",
+                "archived": False,
+                "size": 10500,
+                "description": "PUB Records hub",
+            },
+        ]
+
+        graph = get_organization_graph("pubcoreagencia")
+        self.assertEqual(graph.center_node_id, "org:pubcoreagencia")
+        node_ids = {n.id for n in graph.nodes}
+        self.assertIn("org:pubcoreagencia", node_ids)
+        self.assertIn("repo:pubcoreagencia/pubcore", node_ids)
+        self.assertIn("repo:pubcoreagencia/pub-neural", node_ids)
+        self.assertIn("repo:pubcoreagencia/PUB-BEATS", node_ids)
+        self.assertIn("repo:pubcoreagencia/pub-records", node_ids)
+
+        # Cross-repository evidenced edge: PUB-BEATS -> pub-records
+        cross_edges = [e for e in graph.edges if e.relation_type == "DERIVED_FROM"]
+        self.assertEqual(len(cross_edges), 1)
+        self.assertEqual(cross_edges[0].source_id, "repo:pubcoreagencia/PUB-BEATS")
+        self.assertEqual(cross_edges[0].target_id, "repo:pubcoreagencia/pub-records")
+
+    @patch("console.backend.services.git_graph_service.fetch_organization_repos")
+    def test_get_git_node_detail_org(self, mock_repos):
+        mock_repos.return_value = [
+            {"name": "repo-1", "archived": False},
+            {"name": "repo-2", "archived": True},
+        ]
+        detail = get_git_node_detail("org:pubcoreagencia")
+        self.assertIsNotNone(detail)
+        self.assertEqual(detail["entity_type"], "ORGANIZATION")
+        self.assertEqual(detail["git_metadata"]["total_repositories"], 2)
+        self.assertEqual(detail["git_metadata"]["active_repositories"], 1)
+        self.assertEqual(detail["git_metadata"]["archived_repositories"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
+

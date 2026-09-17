@@ -54,6 +54,8 @@ from console.backend.services.graph_service import (
 from console.backend.services.git_graph_service import (
     get_git_topology,
     get_git_node_detail,
+    get_organization_graph,
+    fetch_organization_repos,
 )
 from console.backend.services.search_service import execute_console_search
 from console.backend.services.status_service import get_system_status
@@ -257,26 +259,74 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(200, session_info)
                 return
 
-            # 2c. Git Repository Graph endpoint: /api/v1/graph/repository (Public Source of Truth Topology)
+            # 2c. Git Repositories Discovery endpoint: /api/v1/graph/repositories
+            if path == "/api/v1/graph/repositories":
+                search_q = params.get("search", [""])[0]
+                archived_param = params.get("archived", ["true"])[0].lower()
+                include_archived = archived_param in ("true", "1", "yes")
+                limit_param = int(params.get("limit", [100])[0])
+                offset_param = int(params.get("offset", [0])[0])
+
+                all_repos = fetch_organization_repos("pubcoreagencia")
+                filtered = []
+                for r in all_repos:
+                    if not include_archived and r.get("archived", False):
+                        continue
+                    if search_q:
+                        sq = search_q.lower()
+                        if sq not in r.get("name", "").lower() and sq not in (r.get("description") or "").lower():
+                            continue
+                    filtered.append({
+                        "repository": r.get("full_name"),
+                        "name": r.get("name"),
+                        "owner": "pubcoreagencia",
+                        "default_branch": r.get("default_branch", "main"),
+                        "description": r.get("description"),
+                        "visibility": r.get("visibility", "public"),
+                        "archived": r.get("archived", False),
+                        "size_kb": r.get("size", 0),
+                        "updated_at": r.get("updated_at"),
+                        "node_id": f"repo:{r.get('full_name')}",
+                        "github_url": f"https://github.com/{r.get('full_name')}",
+                    })
+
+                total = len(filtered)
+                paginated = filtered[offset_param : offset_param + limit_param]
+                self._send_json(200, {
+                    "total": total,
+                    "offset": offset_param,
+                    "limit": limit_param,
+                    "repositories": paginated,
+                })
+                return
+
+            # 2c2. Git Repository Graph endpoint: /api/v1/graph/repository (Public Source of Truth Topology)
             if path == "/api/v1/graph/repository":
-                repo_param = params.get("repository", ["pubcoreagencia/pubcore"])[0]
+                repo_param = params.get("repository", [""])[0]
                 branch_param = params.get("branch", ["main"])[0]
                 path_param = params.get("path", [""])[0]
                 depth_param = int(params.get("depth", [1])[0])
                 limit_param = int(params.get("limit", [100])[0])
 
-                git_graph = get_git_topology(
-                    repo=repo_param,
-                    branch=branch_param,
-                    base_path=path_param,
-                    depth=depth_param,
-                    limit=limit_param,
-                )
+                if not repo_param:
+                    git_graph = get_organization_graph(
+                        org="pubcoreagencia",
+                        include_archived=True,
+                        limit=limit_param,
+                    )
+                else:
+                    git_graph = get_git_topology(
+                        repo=repo_param,
+                        branch=branch_param,
+                        base_path=path_param,
+                        depth=depth_param,
+                        limit=limit_param,
+                    )
                 self._send_json(200, git_graph.to_dict())
                 return
 
             # 2d. Git Entity Detail check for public topology nodes
-            match_git_entity = re.match(r"^/api/v1/entities/((?:repo|dir|file|commit):.+)$", path)
+            match_git_entity = re.match(r"^/api/v1/entities/((?:org|repo|dir|file|commit):.+)$", path)
             if match_git_entity:
                 entity_id = match_git_entity.group(1)
                 git_detail = get_git_node_detail(entity_id)

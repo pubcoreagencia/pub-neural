@@ -43,6 +43,7 @@ export interface GraphFilterCriteria {
 }
 
 export const ENTITY_COLORS: Record<string, { bg: string; border: string; text: string; badge: string }> = {
+  ORGANIZATION: { bg: "#2a163d", border: "#c084fc", text: "#f3e8ff", badge: "#7e22ce" },
   DECISION: { bg: "#1f1b2e", border: "#8b5cf6", text: "#e9d5ff", badge: "#4c1d95" },
   RULE: { bg: "#2a1e12", border: "#f59e0b", text: "#fef3c7", badge: "#78350f" },
   PATTERN: { bg: "#112629", border: "#06b6d4", text: "#cffafe", badge: "#164e63" },

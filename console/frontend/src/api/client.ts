@@ -185,6 +185,38 @@ export const NeuralAPI = {
     return fetchApi<GraphResponseDTO>(`/graph/repository${qs ? `?${qs}` : ""}`);
   },
 
+  async getOrganizationRepositories(params?: {
+    search?: string;
+    archived?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    total: number;
+    offset: number;
+    limit: number;
+    repositories: Array<{
+      repository: string;
+      name: string;
+      owner: string;
+      default_branch: string;
+      description: string | null;
+      visibility: string;
+      archived: boolean;
+      size_kb: number;
+      updated_at: string;
+      node_id: string;
+      github_url: string;
+    }>;
+  }> {
+    const searchParams = new URLSearchParams();
+    if (params?.search) searchParams.set("search", params.search);
+    if (params?.archived !== undefined) searchParams.set("archived", String(params.archived));
+    if (params?.limit !== undefined) searchParams.set("limit", String(params.limit));
+    if (params?.offset !== undefined) searchParams.set("offset", String(params.offset));
+    const qs = searchParams.toString();
+    return fetchApi(`/graph/repositories${qs ? `?${qs}` : ""}`);
+  },
+
   async getNeighborhood(
     entityId: string,
     depth: number = 2,

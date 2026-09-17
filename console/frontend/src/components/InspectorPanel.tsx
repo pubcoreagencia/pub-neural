@@ -366,18 +366,54 @@ export function InspectorPanel({
                 gap: 8,
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
-                <span style={{ color: "#94a3b8" }}>Repository</span>
-                <span style={{ color: "#38bdf8", fontWeight: 600, fontFamily: "monospace" }}>
-                  {(entity as any).git_metadata.repository}
-                </span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
-                <span style={{ color: "#94a3b8" }}>Branch</span>
-                <span style={{ color: "#34d399", fontWeight: 600, fontFamily: "monospace" }}>
-                  {(entity as any).git_metadata.branch || "main"}
-                </span>
-              </div>
+              {(entity as any).git_metadata.organization && (
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                  <span style={{ color: "#94a3b8" }}>Organization</span>
+                  <span style={{ color: "#c084fc", fontWeight: 700, fontFamily: "monospace" }}>
+                    {(entity as any).git_metadata.organization}
+                  </span>
+                </div>
+              )}
+              {(entity as any).git_metadata.total_repositories !== undefined && (
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                  <span style={{ color: "#94a3b8" }}>Total Repositories</span>
+                  <span style={{ color: "#38bdf8", fontWeight: 700, fontFamily: "monospace" }}>
+                    {(entity as any).git_metadata.total_repositories}
+                  </span>
+                </div>
+              )}
+              {(entity as any).git_metadata.active_repositories !== undefined && (
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                  <span style={{ color: "#94a3b8" }}>Active Repositories</span>
+                  <span style={{ color: "#34d399", fontWeight: 600, fontFamily: "monospace" }}>
+                    {(entity as any).git_metadata.active_repositories}
+                  </span>
+                </div>
+              )}
+              {(entity as any).git_metadata.archived_repositories !== undefined && (
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                  <span style={{ color: "#94a3b8" }}>Archived Repositories</span>
+                  <span style={{ color: "#f87171", fontWeight: 600, fontFamily: "monospace" }}>
+                    {(entity as any).git_metadata.archived_repositories}
+                  </span>
+                </div>
+              )}
+              {(entity as any).git_metadata.repository && (
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                  <span style={{ color: "#94a3b8" }}>Repository</span>
+                  <span style={{ color: "#38bdf8", fontWeight: 600, fontFamily: "monospace" }}>
+                    {(entity as any).git_metadata.repository}
+                  </span>
+                </div>
+              )}
+              {(entity as any).git_metadata.branch && (
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                  <span style={{ color: "#94a3b8" }}>Branch</span>
+                  <span style={{ color: "#34d399", fontWeight: 600, fontFamily: "monospace" }}>
+                    {(entity as any).git_metadata.branch}
+                  </span>
+                </div>
+              )}
               {(entity as any).git_metadata.path && (
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
                   <span style={{ color: "#94a3b8" }}>Tree Path</span>
