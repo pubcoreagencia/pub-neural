@@ -58,7 +58,7 @@ BEGIN
 
   SELECT pub_neural.embedding_provenance_compatible(
     v_id, 'test-provider', 'test-model', 'v1', 1536,
-    'test-corpus-v1', 'test-index-v1'
+    'test-corpus-v1', 'test-index-v1', '{"normalized":true}'::jsonb
   ) INTO v_ok;
 
   IF NOT v_ok THEN
@@ -67,7 +67,7 @@ BEGIN
 
   SELECT pub_neural.embedding_provenance_compatible(
     v_id, 'test-provider', 'test-model', 'v2', 1536,
-    'test-corpus-v1', 'test-index-v1'
+    'test-corpus-v1', 'test-index-v1', '{"normalized":true}'::jsonb
   ) INTO v_ok;
 
   IF v_ok THEN
@@ -76,7 +76,7 @@ BEGIN
 
   SELECT pub_neural.embedding_provenance_compatible(
     v_id, 'test-provider', 'test-model', 'v1', 1536,
-    'test-corpus-v2', 'test-index-v1'
+    'test-corpus-v2', 'test-index-v1', '{"normalized":true}'::jsonb
   ) INTO v_ok;
 
   IF v_ok THEN
@@ -85,7 +85,7 @@ BEGIN
 
   SELECT pub_neural.embedding_provenance_compatible(
     v_id, 'test-provider', 'test-model', 'v1', 1536,
-    'test-corpus-v1', 'test-index-v2'
+    'test-corpus-v1', 'test-index-v2', '{"normalized":true}'::jsonb
   ) INTO v_ok;
 
   IF v_ok THEN
@@ -94,7 +94,7 @@ BEGIN
 
   SELECT pub_neural.embedding_provenance_compatible(
     v_id, 'test-provider', 'test-model', 'v1', 1537,
-    'test-corpus-v1', 'test-index-v1'
+    'test-corpus-v1', 'test-index-v1', '{"normalized":true}'::jsonb
   ) INTO v_ok;
 
   IF v_ok THEN
