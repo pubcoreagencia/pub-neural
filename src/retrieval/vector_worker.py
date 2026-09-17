@@ -94,7 +94,7 @@ class VectorIndexingWorker:
             # Check existing vector
             cur.execute(
                 """
-                SELECT id, content_hash, originating_event_id
+                SELECT id, content_hash, originating_event_id, embedding_provenance_id
                 FROM pub_neural.neural_vectors
                 WHERE target_type = 'NODE' AND target_id = %s AND model_id = %s;
                 """,
@@ -103,7 +103,7 @@ class VectorIndexingWorker:
             existing = cur.fetchone()
 
             if existing:
-                if existing["content_hash"] == current_hash:
+                if existing["content_hash"] == current_hash and str(existing["embedding_provenance_id"]) == provenance_id:
                     # Already up to date, idempotent no-op
                     conn.rollback()
                     return {
@@ -121,6 +121,7 @@ class VectorIndexingWorker:
                         """
                         UPDATE pub_neural.neural_vectors
                         SET embedding = %s::vector(1536),
+                            embedding_provenance_id = %s::uuid,
                             content_hash = %s,
                             originating_event_id = %s::uuid,
                             trust_zone = %s,
@@ -130,6 +131,7 @@ class VectorIndexingWorker:
                         """,
                         (
                             embedding,
+                            provenance_id,
                             current_hash,
                             str(node["originating_event_id"]),
                             node["trust_zone"],
@@ -152,7 +154,7 @@ class VectorIndexingWorker:
                 cur.execute(
                     """
                     INSERT INTO pub_neural.neural_vectors (
-                        id, target_type, target_id, trust_zone, project_id, model_id,
+                        id, target_type, target_id, trust_zone, project_id, model_id, embedding_provenance_id,
                         embedding, content_hash, originating_event_id, created_at
                     ) VALUES (
                         %s::uuid, 'NODE', %s, %s, %s, %s, %s::uuid, %s::vector(1536), %s, %s::uuid, CURRENT_TIMESTAMP
