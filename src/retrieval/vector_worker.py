@@ -217,7 +217,7 @@ class VectorIndexingWorker:
 
             cur.execute(
                 """
-                SELECT id, content_hash, originating_event_id
+                SELECT id, content_hash, originating_event_id, embedding_provenance_id
                 FROM pub_neural.neural_vectors
                 WHERE target_type = 'EVIDENCE' AND target_id = %s AND model_id = %s;
                 """,
@@ -226,7 +226,7 @@ class VectorIndexingWorker:
             existing = cur.fetchone()
 
             if existing:
-                if existing["content_hash"] == current_hash:
+                if existing["content_hash"] == current_hash and str(existing["embedding_provenance_id"]) == provenance_id:
                     conn.rollback()
                     return {
                         "action": "SKIPPED_UP_TO_DATE",
@@ -242,6 +242,7 @@ class VectorIndexingWorker:
                         """
                         UPDATE pub_neural.neural_vectors
                         SET embedding = %s::vector(1536),
+                            embedding_provenance_id = %s::uuid,
                             content_hash = %s,
                             originating_event_id = %s::uuid,
                             trust_zone = %s,
@@ -251,6 +252,7 @@ class VectorIndexingWorker:
                         """,
                         (
                             embedding,
+                            provenance_id,
                             current_hash,
                             str(ev["originating_event_id"]),
                             ev["trust_zone"],
@@ -279,6 +281,7 @@ class VectorIndexingWorker:
                     )
                     ON CONFLICT (target_type, target_id, model_id) DO UPDATE SET
                         embedding = EXCLUDED.embedding,
+                        embedding_provenance_id = EXCLUDED.embedding_provenance_id,
                         content_hash = EXCLUDED.content_hash,
                         originating_event_id = EXCLUDED.originating_event_id,
                         trust_zone = EXCLUDED.trust_zone,
@@ -291,6 +294,7 @@ class VectorIndexingWorker:
                         ev["trust_zone"],
                         ev["project_id"],
                         self.provider.model_id,
+                        provenance_id,
                         embedding,
                         current_hash,
                         str(ev["originating_event_id"])
