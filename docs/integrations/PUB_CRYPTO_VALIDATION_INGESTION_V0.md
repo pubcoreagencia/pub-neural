@@ -86,3 +86,16 @@ No exchange credentials, private keys, machine secrets, or real-capital authoriz
 The PUB Crypto adapter now targets this verified contract.
 
 Actual production persistence still requires a provisioned trusted actor and a reachable PUB Neural PostgreSQL runtime. Code publication alone does not claim a live database write.
+
+
+## Live proof status — 2026-09-17
+
+The live PUB Neural Supabase project was inspected directly. The `pub-crypto` holding project exists and is active.
+
+A direct disposable actor registration was rejected because `trusted_actors.originating_event_id` is NOT NULL. This confirms the database enforces the governed actor-registration boundary instead of allowing an unanchored INGESTOR identity to be created.
+
+No test `TRADING_VALIDATION` event was persisted. The event count remains unchanged at 39 and `neural_idempotency_records` remains at 0.
+
+The graph projector reports HEALTHY but its checkpoint is global sequence 7. No PUB Crypto validation event has therefore been observed by the projector yet.
+
+The next production-grade gate is a governed actor-registration event followed by out-of-band machine-secret provisioning. Do not bypass this with a direct `trusted_actors` insert.
