@@ -10,12 +10,153 @@ from typing import Any, Dict, List, Optional
 from console.backend.models import (
     CandidateReviewDTO,
     DailyActivityBucketDTO,
+    ExecutiveSummaryDTO,
     GovernanceReviewResponseDTO,
     LatestSignalDTO,
     OverviewProjectDTO,
     OverviewResponseDTO,
+    ProjectRegistryItemDTO,
+    ProjectRegistryListDTO,
     serialize_val,
 )
+
+
+def get_projects_registry(
+    cur,
+    category: Optional[str] = None,
+    lifecycle_status: Optional[str] = None,
+    is_active: Optional[bool] = None,
+) -> ProjectRegistryListDTO:
+    """Returns all registered projects from pub_neural.project_registry."""
+    query = """
+        SELECT
+            id, repository_full_name, repository_name, display_name,
+            description, category, lifecycle_status, is_active,
+            is_archived, is_private, monitoring_enabled, strategic_priority,
+            github_url, created_at, updated_at, last_discovered_at
+        FROM pub_neural.project_registry
+        WHERE 1=1
+    """
+    params: List[Any] = []
+    if category:
+        query += " AND category = %s"
+        params.append(category)
+    if lifecycle_status:
+        query += " AND lifecycle_status = %s"
+        params.append(lifecycle_status)
+    if is_active is not None:
+        query += " AND is_active = %s"
+        params.append(is_active)
+
+    query += " ORDER BY is_active DESC, strategic_priority ASC, display_name ASC;"
+
+    cur.execute(query, tuple(params))
+    rows = cur.fetchall()
+
+    projects = [
+        ProjectRegistryItemDTO(
+            id=r["id"],
+            repository_full_name=r["repository_full_name"],
+            repository_name=r["repository_name"],
+            display_name=r["display_name"],
+            description=r.get("description"),
+            category=r["category"],
+            lifecycle_status=r["lifecycle_status"],
+            is_active=bool(r["is_active"]),
+            is_archived=bool(r["is_archived"]),
+            is_private=bool(r["is_private"]),
+            monitoring_enabled=bool(r["monitoring_enabled"]),
+            strategic_priority=r["strategic_priority"],
+            github_url=r.get("github_url"),
+            created_at=serialize_val(r["created_at"]) or "",
+            updated_at=serialize_val(r["updated_at"]) or "",
+            last_discovered_at=serialize_val(r["last_discovered_at"]) or "",
+        )
+        for r in rows
+    ]
+    return ProjectRegistryListDTO(total_count=len(projects), projects=projects)
+
+
+def get_project_detail(cur, project_id: str) -> Optional[Dict[str, Any]]:
+    """Returns single project registry metadata along with observations and knowledge summary."""
+    cur.execute("""
+        SELECT
+            id, repository_full_name, repository_name, display_name,
+            description, category, lifecycle_status, is_active,
+            is_archived, is_private, monitoring_enabled, strategic_priority,
+            github_url, created_at, updated_at, last_discovered_at
+        FROM pub_neural.project_registry
+        WHERE id = %s OR repository_name = %s;
+    """, (project_id, project_id))
+    row = cur.fetchone()
+    if not row:
+        return None
+
+    pid = row["id"]
+    # Observation stats
+    cur.execute("""
+        SELECT
+            COUNT(DISTINCT repository) AS observed_repos,
+            COUNT(*) AS total_observations,
+            COUNT(*) FILTER (
+                WHERE observed_at >= (timezone('UTC', CURRENT_DATE))
+                  AND observed_at < (timezone('UTC', CURRENT_TIMESTAMP))
+            ) AS today_observations,
+            COUNT(*) FILTER (
+                WHERE observed_at >= (timezone('UTC', CURRENT_TIMESTAMP) - INTERVAL '7 days')
+                  AND observed_at < (timezone('UTC', CURRENT_TIMESTAMP))
+            ) AS seven_day_observations,
+            MAX(observed_at) AS last_observed_at
+        FROM pub_neural.neural_repository_observations
+        WHERE project_id = %s;
+    """, (pid,))
+    obs_row = cur.fetchone() or {}
+
+    # Knowledge nodes stats
+    cur.execute("""
+        SELECT
+            COUNT(*) AS total_nodes,
+            COUNT(*) FILTER (WHERE promotion_state = 'CANDIDATE') AS candidate_nodes,
+            COUNT(*) FILTER (WHERE promotion_state = 'ADOPTED') AS adopted_nodes,
+            COUNT(*) FILTER (WHERE conflict_state = 'BLOCKED') AS blocked_nodes
+        FROM pub_neural.neural_nodes
+        WHERE project_id = %s AND is_active = TRUE;
+    """, (pid,))
+    node_row = cur.fetchone() or {}
+
+    return {
+        "registry": {
+            "id": row["id"],
+            "repository_full_name": row["repository_full_name"],
+            "repository_name": row["repository_name"],
+            "display_name": row["display_name"],
+            "description": row.get("description"),
+            "category": row["category"],
+            "lifecycle_status": row["lifecycle_status"],
+            "is_active": bool(row["is_active"]),
+            "is_archived": bool(row["is_archived"]),
+            "is_private": bool(row["is_private"]),
+            "monitoring_enabled": bool(row["monitoring_enabled"]),
+            "strategic_priority": row["strategic_priority"],
+            "github_url": row.get("github_url"),
+            "created_at": serialize_val(row["created_at"]),
+            "updated_at": serialize_val(row["updated_at"]),
+            "last_discovered_at": serialize_val(row["last_discovered_at"]),
+        },
+        "observations": {
+            "observed_repositories": int(obs_row.get("observed_repos") or 0),
+            "total_observations": int(obs_row.get("total_observations") or 0),
+            "today_observations": int(obs_row.get("today_observations") or 0),
+            "seven_day_observations": int(obs_row.get("seven_day_observations") or 0),
+            "last_observed_at": serialize_val(obs_row.get("last_observed_at")),
+        },
+        "knowledge": {
+            "active_nodes": int(node_row.get("total_nodes") or 0),
+            "candidate_nodes": int(node_row.get("candidate_nodes") or 0),
+            "adopted_nodes": int(node_row.get("adopted_nodes") or 0),
+            "blocked_nodes": int(node_row.get("blocked_nodes") or 0),
+        },
+    }
 
 
 def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
@@ -23,18 +164,8 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
     Produces deterministic operational summary:
     - Database health: derived from PostgreSQL engine connectivity and execution responsiveness.
     - Projector health: derived strictly from `pub_neural.neural_projection_checkpoints`.
-    - Observed projects discovered via `pub_neural.neural_repository_observations`
-      and active `pub_neural.neural_nodes`.
-    - Distinct semantic metrics:
-        * observed_repository_count: count of distinct repositories observed
-        * observation_count: total repository observations recorded
-        * activity_today: observations recorded today in UTC [today_utc_start, current_timestamp_utc)
-        * activity_7d: observations recorded in the last 7 completed/running 24h UTC intervals [now - 7d, now)
-        * active_node_count: count of active knowledge nodes (is_active = TRUE)
-        * blocked_nodes_count: count of active knowledge nodes with conflict_state = 'BLOCKED'
-        * project_state: promotion_state if authoritative PROJECT node with originating_event by CEO/ADMIN exists, else 'UNKNOWN'
-        * latest_signal: deterministic latest operational signal (REPOSITORY_OBSERVED vs TASK_EXPERIENCE_RECORDED)
-    - Full calendar window for daily activity: exactly N UTC days guaranteed for every project.
+    - Discovers all projects primarily from `pub_neural.project_registry` with fallback to observations/nodes.
+    - Preserves distinction between existence, activity, and knowledge without synthetic fabrication.
     """
     now_utc = datetime.now(timezone.utc)
     clamped_window = min(max(window_days, 1), 60)
@@ -74,19 +205,44 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
         except Exception:
             pass
 
-    # 3. Discover all observed projects across repository observations and active knowledge nodes
+    # 3. Discover all projects: primarily from project_registry, complemented with observed/node projects
+    registry_by_id: Dict[str, Dict[str, Any]] = {}
+    try:
+        cur.execute("SAVEPOINT sp_registry_lookup;")
+        cur.execute("""
+            SELECT
+                id, repository_full_name, repository_name, display_name,
+                description, category, lifecycle_status, is_active,
+                is_archived, is_private, monitoring_enabled, strategic_priority,
+                github_url
+            FROM pub_neural.project_registry
+            ORDER BY is_active DESC, strategic_priority ASC, display_name ASC;
+        """)
+        for r in (cur.fetchall() or []):
+            if isinstance(r, dict) and "id" in r:
+                registry_by_id[r["id"]] = r
+        cur.execute("RELEASE SAVEPOINT sp_registry_lookup;")
+    except Exception:
+        try:
+            cur.execute("ROLLBACK TO SAVEPOINT sp_registry_lookup;")
+        except Exception:
+            pass
+
+    # Also discover observed projects that may not be in registry yet
     cur.execute("""
         SELECT DISTINCT project_id FROM pub_neural.neural_repository_observations WHERE project_id IS NOT NULL
         UNION
         SELECT DISTINCT project_id FROM pub_neural.neural_nodes WHERE project_id IS NOT NULL AND is_active = TRUE
         ORDER BY project_id ASC;
     """)
-    project_rows = cur.fetchall()
-    observed_project_ids: List[str] = [r["project_id"] for r in project_rows if r.get("project_id")]
+    extra_projects = [r.get("project_id") for r in (cur.fetchall() or []) if isinstance(r, dict) and r.get("project_id")]
+
+    all_project_ids: List[str] = list(registry_by_id.keys())
+    for pid in extra_projects:
+        if pid not in registry_by_id and pid:
+            all_project_ids.append(pid)
 
     # 4. Per-project observation statistics with strict UTC boundaries
-    # today_observations: [today_utc_start, current_timestamp_utc)
-    # seven_day_observations: [current_timestamp_utc - 7 days, current_timestamp_utc)
     cur.execute("""
         SELECT
             project_id,
@@ -120,20 +276,19 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
         WHERE project_id IS NOT NULL AND is_active = TRUE
         GROUP BY project_id;
     """)
-    node_rows = cur.fetchall()
+    node_rows = cur.fetchall() or []
     nodes_by_project: Dict[str, int] = {
-        r["project_id"]: int(r["total_active_nodes"]) for r in node_rows
+        r["project_id"]: int(r.get("total_active_nodes", 0))
+        for r in node_rows
+        if isinstance(r, dict) and "project_id" in r
     }
     blocked_by_project: Dict[str, int] = {
-        r["project_id"]: int(r.get("total_blocked_nodes") or 0) for r in node_rows
+        r["project_id"]: int(r.get("total_blocked_nodes") or 0)
+        for r in node_rows
+        if isinstance(r, dict) and "project_id" in r
     }
 
-    # 6. Project State: strictly 'UNKNOWN'
-    # Semantic audit: No authoritative project lifecycle state or dedicated PROJECT node ID convention exists in the schema.
-    # We strictly adhere to zero synthetic progress/state generation.
-    project_states: Dict[str, str] = {}
-
-    # 7. Latest Operational Signal per project (deterministic rank: REPOSITORY_OBSERVED vs TASK_EXPERIENCE_RECORDED)
+    # 6. Latest Operational Signal per project
     cur.execute("""
         WITH signals AS (
             SELECT
@@ -202,60 +357,120 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
             locator=r["locator"],
         )
 
-    # 8. Build Project DTOs
+    # 7. Build Project DTOs
     projects: List[OverviewProjectDTO] = []
-    for pid in observed_project_ids:
+    total_obs_7d = 0
+
+    for pid in all_project_ids:
         obs_data = obs_by_project.get(pid, {})
         last_obs = obs_data.get("last_observed_at")
+        reg_info = registry_by_id.get(pid, {})
+
+        obs_count = int(obs_data.get("total_observations") or 0)
+        act_7d = int(obs_data.get("seven_day_observations") or 0)
+        total_obs_7d += act_7d
+
+        # Determine friendly project_state
+        if reg_info.get("is_archived"):
+            p_state = "ARQUIVADO"
+        elif obs_count > 0:
+            p_state = "ATIVO_OBSERVADO"
+        else:
+            p_state = "SEM_OBSERVACOES"
+
         projects.append(
             OverviewProjectDTO(
                 project_id=pid,
                 observed_repository_count=int(obs_data.get("observed_repos") or 0),
-                observation_count=int(obs_data.get("total_observations") or 0),
+                observation_count=obs_count,
                 activity_today=int(obs_data.get("today_observations") or 0),
-                activity_7d=int(obs_data.get("seven_day_observations") or 0),
+                activity_7d=act_7d,
                 last_observation_at=serialize_val(last_obs) if last_obs else None,
                 active_node_count=nodes_by_project.get(pid, 0),
-                project_state=project_states.get(pid, "UNKNOWN"),
+                project_state=p_state,
                 blocked_nodes_count=blocked_by_project.get(pid, 0),
                 latest_signal=signals_by_project.get(pid),
+                display_name=reg_info.get("display_name") or pid,
+                description=reg_info.get("description") or "",
+                category=reg_info.get("category") or "OPERACIONAL",
+                lifecycle_status=reg_info.get("lifecycle_status") or ("ARQUIVADO" if reg_info.get("is_archived") else "ATIVO"),
+                is_active=bool(reg_info.get("is_active", True)),
+                is_archived=bool(reg_info.get("is_archived", False)),
+                monitoring_enabled=bool(reg_info.get("monitoring_enabled", True)),
+                github_url=reg_info.get("github_url"),
             )
         )
 
-    # 7. Generate strict calendar window of exactly N UTC days
-    # Range: from (CURRENT_DATE - (window_days - 1)) to CURRENT_DATE (inclusive)
+    # Sort projects: active first, then highest 7d activity, then by display_name
+    projects.sort(key=lambda p: (not p.is_active, p.is_archived, -p.activity_7d, p.display_name or p.project_id))
+
+    # 8. Calendar activity window for observed projects
+    # We only include projects with observations in the daily heatmap table to avoid empty rows of 60 items
+    observed_pids = [p.project_id for p in projects if p.observation_count > 0]
+    daily_buckets: List[DailyActivityBucketDTO] = []
+
+    if observed_pids:
+        cur.execute("""
+            SELECT
+                TO_CHAR(d.day, 'YYYY-MM-DD') AS day,
+                p.project_id,
+                COALESCE(COUNT(o.observation_id), 0) AS observed_count
+            FROM generate_series(
+                timezone('UTC', CURRENT_DATE) - ((%s - 1) * INTERVAL '1 day'),
+                timezone('UTC', CURRENT_DATE),
+                INTERVAL '1 day'
+            ) AS d(day)
+            CROSS JOIN (
+                SELECT DISTINCT project_id FROM pub_neural.neural_repository_observations WHERE project_id IS NOT NULL
+            ) AS p(project_id)
+            LEFT JOIN pub_neural.neural_repository_observations o
+                ON o.project_id = p.project_id
+               AND o.observed_at >= d.day
+               AND o.observed_at < d.day + INTERVAL '1 day'
+            GROUP BY d.day, p.project_id
+            ORDER BY day ASC, p.project_id ASC;
+        """, (clamped_window,))
+        daily_rows = cur.fetchall()
+        daily_buckets = [
+            DailyActivityBucketDTO(
+                day=r["day"],
+                project_id=r["project_id"],
+                observed_count=int(r["observed_count"]),
+            )
+            for r in daily_rows
+        ]
+
+    # 9. Aggregate Executive Summary
     cur.execute("""
         SELECT
-            TO_CHAR(d.day, 'YYYY-MM-DD') AS day,
-            p.project_id,
-            COALESCE(COUNT(o.observation_id), 0) AS observed_count
-        FROM generate_series(
-            timezone('UTC', CURRENT_DATE) - ((%s - 1) * INTERVAL '1 day'),
-            timezone('UTC', CURRENT_DATE),
-            INTERVAL '1 day'
-        ) AS d(day)
-        CROSS JOIN (
-            SELECT DISTINCT project_id FROM pub_neural.neural_repository_observations WHERE project_id IS NOT NULL
-            UNION
-            SELECT DISTINCT project_id FROM pub_neural.neural_nodes WHERE project_id IS NOT NULL AND is_active = TRUE
-        ) AS p(project_id)
-        LEFT JOIN pub_neural.neural_repository_observations o
-            ON o.project_id = p.project_id
-           AND o.observed_at >= d.day
-           AND o.observed_at < d.day + INTERVAL '1 day'
-        GROUP BY d.day, p.project_id
-        ORDER BY day ASC, p.project_id ASC;
-    """, (clamped_window,))
-    daily_rows = cur.fetchall()
+            COUNT(*) FILTER (WHERE promotion_state = 'CANDIDATE' AND is_active = TRUE) AS candidate_count,
+            COUNT(*) FILTER (WHERE promotion_state = 'ADOPTED' AND is_active = TRUE) AS adopted_count
+        FROM pub_neural.neural_nodes;
+    """)
+    gov_stats = cur.fetchone() or {}
 
-    daily_buckets: List[DailyActivityBucketDTO] = [
-        DailyActivityBucketDTO(
-            day=r["day"],
-            project_id=r["project_id"],
-            observed_count=int(r["observed_count"]),
-        )
-        for r in daily_rows
-    ]
+    cur.execute("""
+        SELECT COUNT(*) AS today_events
+        FROM pub_neural.neural_events
+        WHERE recorded_at >= timezone('UTC', CURRENT_DATE)
+          AND recorded_at < timezone('UTC', CURRENT_TIMESTAMP);
+    """)
+    ev_today = (cur.fetchone() or {}).get("today_events", 0)
+
+    total_projects = len(projects)
+    active_projects = sum(1 for p in projects if p.is_active and not p.is_archived)
+    monitored_repos = sum(1 for p in projects if p.monitoring_enabled)
+
+    exec_summary = ExecutiveSummaryDTO(
+        total_projects=total_projects,
+        active_projects=active_projects,
+        monitored_repositories=monitored_repos,
+        recent_observations_7d=total_obs_7d,
+        events_today=int(ev_today),
+        candidate_knowledge_count=int(gov_stats.get("candidate_count") or 0),
+        adopted_knowledge_count=int(gov_stats.get("adopted_count") or 0),
+        neural_health="SAUDAVEL" if database_health == "HEALTHY" and projector_health in ("HEALTHY", "UNKNOWN") else "DEGRADADO",
+    )
 
     return OverviewResponseDTO(
         generated_at=now_utc.isoformat(),
@@ -264,6 +479,7 @@ def get_overview_data(cur, window_days: int = 14) -> OverviewResponseDTO:
         projector_health=projector_health,
         projects=projects,
         daily_activity=daily_buckets,
+        executive_summary=exec_summary,
     )
 
 

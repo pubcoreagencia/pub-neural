@@ -310,6 +310,56 @@ class LatestSignalDTO:
 
 
 @dataclass(frozen=True)
+class ProjectRegistryItemDTO:
+    id: str
+    repository_full_name: str
+    repository_name: str
+    display_name: str
+    description: Optional[str]
+    category: str
+    lifecycle_status: str
+    is_active: bool
+    is_archived: bool
+    is_private: bool
+    monitoring_enabled: bool
+    strategic_priority: str
+    github_url: Optional[str]
+    created_at: str
+    updated_at: str
+    last_discovered_at: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ProjectRegistryListDTO:
+    total_count: int
+    projects: List[ProjectRegistryItemDTO]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "total_count": self.total_count,
+            "projects": [p.to_dict() for p in self.projects],
+        }
+
+
+@dataclass(frozen=True)
+class ExecutiveSummaryDTO:
+    total_projects: int
+    active_projects: int
+    monitored_repositories: int
+    recent_observations_7d: int
+    events_today: int
+    candidate_knowledge_count: int
+    adopted_knowledge_count: int
+    neural_health: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class OverviewProjectDTO:
     project_id: str
     observed_repository_count: int
@@ -318,9 +368,17 @@ class OverviewProjectDTO:
     activity_7d: int
     last_observation_at: Optional[str]
     active_node_count: int
-    project_state: str = "UNKNOWN"
+    project_state: str = "SEM_OBSERVACOES"
     blocked_nodes_count: int = 0
     latest_signal: Optional[LatestSignalDTO] = None
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    lifecycle_status: Optional[str] = None
+    is_active: bool = True
+    is_archived: bool = False
+    monitoring_enabled: bool = True
+    github_url: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -334,6 +392,14 @@ class OverviewProjectDTO:
             "project_state": self.project_state,
             "blocked_nodes_count": self.blocked_nodes_count,
             "latest_signal": self.latest_signal.to_dict() if self.latest_signal else None,
+            "display_name": self.display_name or self.project_id,
+            "description": self.description or "",
+            "category": self.category or "OPERACIONAL",
+            "lifecycle_status": self.lifecycle_status or ("ARQUIVADO" if self.is_archived else "ATIVO"),
+            "is_active": self.is_active,
+            "is_archived": self.is_archived,
+            "monitoring_enabled": self.monitoring_enabled,
+            "github_url": self.github_url,
         }
 
 
@@ -355,6 +421,7 @@ class OverviewResponseDTO:
     projector_health: str
     projects: List[OverviewProjectDTO]
     daily_activity: List[DailyActivityBucketDTO]
+    executive_summary: Optional[ExecutiveSummaryDTO] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -364,4 +431,5 @@ class OverviewResponseDTO:
             "projector_health": self.projector_health,
             "projects": [p.to_dict() for p in self.projects],
             "daily_activity": [b.to_dict() for b in self.daily_activity],
+            "executive_summary": self.executive_summary.to_dict() if self.executive_summary else None,
         }

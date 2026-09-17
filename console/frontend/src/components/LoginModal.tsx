@@ -70,10 +70,10 @@ export function LoginModal({ onLoginSuccess, onClose }: LoginModalProps) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
           <div>
             <h2 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "#38bdf8", letterSpacing: "0.02em" }}>
-              PUB NEURAL AUTHENTICATION
+              AUTENTICAÇÃO PUB NEURAL
             </h2>
             <p style={{ margin: "4px 0 0 0", fontSize: "0.75rem", color: "#64748b" }}>
-              Authenticate with an active trusted operator actor
+              Autentique-se com um actor operador confiável
             </p>
           </div>
           {onClose && (
@@ -111,7 +111,7 @@ export function LoginModal({ onLoginSuccess, onClose }: LoginModalProps) {
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
           <div>
             <label style={{ display: "block", fontSize: "0.72rem", color: "#94a3b8", marginBottom: "4px", fontWeight: 600 }}>
-              ACTOR ID
+              ID DO ACTOR
             </label>
             <input
               type="text"
@@ -134,13 +134,13 @@ export function LoginModal({ onLoginSuccess, onClose }: LoginModalProps) {
 
           <div>
             <label style={{ display: "block", fontSize: "0.72rem", color: "#94a3b8", marginBottom: "4px", fontWeight: 600 }}>
-              MACHINE SECRET
+              SEGREDO DA MÁQUINA (MACHINE SECRET)
             </label>
             <input
               type="password"
               value={secret}
               onChange={(e) => setSecret(e.target.value)}
-              placeholder="Enter high-entropy machine secret"
+              placeholder="Digite o segredo de alta entropia"
               style={{
                 width: "100%",
                 padding: "8px 10px",
@@ -157,7 +157,7 @@ export function LoginModal({ onLoginSuccess, onClose }: LoginModalProps) {
 
           <div>
             <label style={{ display: "block", fontSize: "0.72rem", color: "#94a3b8", marginBottom: "4px", fontWeight: 600 }}>
-              REQUESTED TRUST ZONE
+              ZONA DE CONFIANÇA (TRUST ZONE)
             </label>
             <select
               value={trustZone}
@@ -196,12 +196,12 @@ export function LoginModal({ onLoginSuccess, onClose }: LoginModalProps) {
               transition: "background-color 0.2s",
             }}
           >
-            {loading ? "Authenticating Session..." : "Establish Authorized Session"}
+            {loading ? "Autenticando Sessão..." : "Estabelecer Sessão Autorizada"}
           </button>
         </form>
 
         <div style={{ marginTop: "16px", borderTop: "1px solid #1e293b", paddingTop: "12px", fontSize: "0.68rem", color: "#64748b", textAlign: "center" }}>
-          Protected by PostgreSQL RLS + Cryptographic Token Hash Validation
+          Protegido por PostgreSQL RLS + Validação Criptográfica de Sessão
         </div>
       </div>
     </div>

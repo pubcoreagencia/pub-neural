@@ -75,7 +75,8 @@ def get_system_status(
                 pass
 
     capabilities = {
-        "database_engine": "ACTIVE (PostgreSQL 16 + pgvector HNSW)",
+        # Canonical keys
+        "database_engine": "ACTIVE (PostgreSQL 17 + pgvector)",
         "event_sourcing": "ACTIVE (Append-only canonical ledger)",
         "rls_governance": "ACTIVE (Row Level Security enforced)",
         "hybrid_retrieval": "ACTIVE (Postgres FTS + Dense RRF)",
@@ -83,11 +84,18 @@ def get_system_status(
         "pre_task_query_gate": "ACTIVE (Phase E1)",
         "post_task_experience_gate": "ACTIVE (Phase E2)",
         "console_backend_api": "ACTIVE (Read-Only Phase 1)",
+        "interactive_console_ui": "ACTIVE (Command Center V0.1)",
         "production_network_transport": "NOT IMPLEMENTED / FUTURE",
         "mcp_protocol": "NOT IMPLEMENTED / FUTURE",
         "hierarchical_leiden_worker": "NOT IMPLEMENTED / FUTURE",
         "autonomous_promotion_agent": "NOT IMPLEMENTED / FUTURE",
-        "interactive_console_ui": "NOT IMPLEMENTED / FUTURE (Phase 2)",
+        # Localized presentation keys
+        "banco_de_dados": "ATIVO (PostgreSQL 17 + pgvector)",
+        "governanca_rls": "ATIVO (Row Level Security soberana)",
+        "recuperacao_hibrida": "ATIVO (Postgres FTS + Dense RRF)",
+        "abstencao_cognitiva": "ATIVO (RetrievalAbstentionPolicy)",
+        "registro_projetos": "ATIVO (Descoberta e Registro Canônico)",
+        "command_center_ui": "ATIVO (Cockpit Operacional PUB Core)",
     }
 
     return SystemStatusDTO(

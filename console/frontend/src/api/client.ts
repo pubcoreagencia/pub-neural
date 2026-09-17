@@ -9,6 +9,8 @@ import type {
   OverviewResponseDTO,
   AuthResponseDTO,
   SessionInfoDTO,
+  ProjectRegistryListDTO,
+  ProjectRegistryItemDTO,
 } from "./types";
 
 const SESSION_STORAGE_KEY = "pub_neural_session_token";
@@ -179,5 +181,37 @@ export const NeuralAPI = {
 
   async getGovernanceReview(): Promise<GovernanceReviewResponseDTO> {
     return fetchApi<GovernanceReviewResponseDTO>("/governance/review");
+  },
+
+  async getProjects(params?: {
+    category?: string;
+    isActive?: boolean;
+    isArchived?: boolean;
+  }): Promise<ProjectRegistryListDTO> {
+    const searchParams = new URLSearchParams();
+    if (params?.category) searchParams.set("category", params.category);
+    if (params?.isActive !== undefined) searchParams.set("is_active", String(params.isActive));
+    if (params?.isArchived !== undefined) searchParams.set("is_archived", String(params.isArchived));
+    const qs = searchParams.toString();
+    return fetchApi<ProjectRegistryListDTO>(`/projects${qs ? `?${qs}` : ""}`);
+  },
+
+  async getProjectDetail(projectId: string): Promise<{
+    registry: ProjectRegistryItemDTO;
+    observations: {
+      observed_repositories: number;
+      total_observations: number;
+      today_observations: number;
+      seven_day_observations: number;
+      last_observed_at: string | null;
+    };
+    knowledge: {
+      active_nodes: number;
+      candidate_nodes: number;
+      adopted_nodes: number;
+      blocked_nodes: number;
+    };
+  }> {
+    return fetchApi(`/projects/${encodeURIComponent(projectId)}`);
   },
 };

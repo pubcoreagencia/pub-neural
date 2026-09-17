@@ -167,6 +167,41 @@ export interface LatestSignalDTO {
   locator: string;
 }
 
+export interface ProjectRegistryItemDTO {
+  id: string;
+  repository_full_name: string;
+  repository_name: string;
+  display_name: string;
+  description: string | null;
+  category: string;
+  lifecycle_status: string;
+  is_active: boolean;
+  is_archived: boolean;
+  is_private: boolean;
+  monitoring_enabled: boolean;
+  strategic_priority: string;
+  github_url: string | null;
+  created_at: string;
+  updated_at: string;
+  last_discovered_at: string;
+}
+
+export interface ProjectRegistryListDTO {
+  total_count: number;
+  projects: ProjectRegistryItemDTO[];
+}
+
+export interface ExecutiveSummaryDTO {
+  total_projects: number;
+  active_projects: number;
+  monitored_repositories: number;
+  recent_observations_7d: number;
+  events_today: number;
+  candidate_knowledge_count: number;
+  adopted_knowledge_count: number;
+  neural_health: string;
+}
+
 export interface OverviewProjectDTO {
   project_id: string;
   observed_repository_count: number;
@@ -178,6 +213,14 @@ export interface OverviewProjectDTO {
   project_state: string;
   blocked_nodes_count: number;
   latest_signal: LatestSignalDTO | null;
+  display_name?: string;
+  description?: string;
+  category?: string;
+  lifecycle_status?: string;
+  is_active?: boolean;
+  is_archived?: boolean;
+  monitoring_enabled?: boolean;
+  github_url?: string | null;
 }
 
 export interface DailyActivityBucketDTO {
@@ -193,6 +236,7 @@ export interface OverviewResponseDTO {
   projector_health: string;
   projects: OverviewProjectDTO[];
   daily_activity: DailyActivityBucketDTO[];
+  executive_summary?: ExecutiveSummaryDTO | null;
 }
 
 export interface CandidateReviewDTO {

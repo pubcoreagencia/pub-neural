@@ -26,6 +26,8 @@ from console.backend.dependencies import (
 from console.backend.services.activity_service import (
     get_governance_review_data,
     get_overview_data,
+    get_project_detail,
+    get_projects_registry,
 )
 from console.backend.services.auth_service import (
     get_current_session,
@@ -256,6 +258,37 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                 with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
                     gov_dto = get_governance_review_data(cur)
                     self._send_json(200, gov_dto.to_dict())
+                return
+
+            # 3c. Projects Registry endpoint: GET /api/v1/projects
+            if path == "/api/v1/projects":
+                category = params.get("category", [None])[0]
+                lifecycle_status = params.get("lifecycle_status", [None])[0]
+                is_active_param = params.get("is_active", [None])[0]
+                is_active = None
+                if is_active_param is not None:
+                    is_active = is_active_param.lower() in ("true", "1")
+
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    projects_dto = get_projects_registry(
+                        cur,
+                        category=category,
+                        lifecycle_status=lifecycle_status,
+                        is_active=is_active,
+                    )
+                    self._send_json(200, projects_dto.to_dict())
+                return
+
+            # 3d. Project Detail endpoint: GET /api/v1/projects/{project_id}
+            match_proj = re.match(r"^/api/v1/projects/([^/]+)$", path)
+            if match_proj:
+                project_id = match_proj.group(1)
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    proj_detail = get_project_detail(cur, project_id)
+                    if not proj_detail:
+                        self._send_json(404, {"error": "NotFound", "detail": f"Project '{project_id}' not found in registry."})
+                        return
+                    self._send_json(200, proj_detail)
                 return
 
             # 4. Search endpoint

@@ -66,11 +66,11 @@ describe("SystemStatusBar Component", () => {
       expect(screen.getByText("HEALTHY")).toBeDefined();
     });
 
-    const timelineBtn = screen.getByText("◷ Event Timeline");
+    const timelineBtn = screen.getByText("◷ Linha do Tempo");
     fireEvent.click(timelineBtn);
     expect(onViewModeChange).toHaveBeenCalledWith("timeline");
 
-    const graphBtn = screen.getByText("✦ Knowledge Graph");
+    const graphBtn = screen.getByText("✦ Grafo de Conhecimento");
     fireEvent.click(graphBtn);
     expect(onViewModeChange).toHaveBeenCalledWith("graph");
   });
@@ -120,11 +120,11 @@ describe("SystemStatusBar Component", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Capabilities ▾")).toBeDefined();
+      expect(screen.getByText("Capacidades ▾")).toBeDefined();
     });
 
-    fireEvent.click(screen.getByText("Capabilities ▾"));
-    expect(screen.getByText("VERIFIED CAPABILITIES")).toBeDefined();
+    fireEvent.click(screen.getByText("Capacidades ▾"));
+    expect(screen.getByText("CAPACIDADES VERIFICADAS")).toBeDefined();
     expect(screen.getByText("database_engine")).toBeDefined();
   });
 });

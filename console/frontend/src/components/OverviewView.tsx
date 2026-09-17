@@ -1,6 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { NeuralAPI } from "../api/client";
-import type { OverviewResponseDTO, OverviewProjectDTO, CandidateReviewDTO } from "../api/types";
+import type {
+  OverviewResponseDTO,
+  OverviewProjectDTO,
+  CandidateReviewDTO,
+} from "../api/types";
 
 interface OverviewViewProps {
   onSelectProjectForGraph?: (projectId: string) => void;
@@ -8,6 +12,8 @@ interface OverviewViewProps {
   onSelectEntityForGraph?: (entityId: string) => void;
   onUnauthorized?: () => void;
 }
+
+type FilterStatus = "TODOS" | "ATIVOS" | "EM_DESENVOLVIMENTO" | "ARQUIVADOS" | "SEM_OBSERVACOES";
 
 export function OverviewView({
   onSelectProjectForGraph,
@@ -20,6 +26,9 @@ export function OverviewView({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [windowDays, setWindowDays] = useState(14);
+  const [filterStatus, setFilterStatus] = useState<FilterStatus>("TODOS");
+  const [filterCategory, setFilterCategory] = useState<string>("TODAS");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const fetchOverview = () => {
     setLoading(true);
@@ -33,7 +42,7 @@ export function OverviewView({
         setCandidates(govRes.candidates || []);
       })
       .catch((err: any) => {
-        const msg = err.message || "Failed to load overview data";
+        const msg = err.message || "Falha ao carregar dados da visão geral";
         setError(msg);
         if (err.status === 401 || msg.includes("401")) {
           onUnauthorized?.();
@@ -48,10 +57,53 @@ export function OverviewView({
     fetchOverview();
   }, [windowDays]);
 
+  // Extract categories for filter
+  const categories = useMemo(() => {
+    if (!data?.projects) return [];
+    const set = new Set<string>();
+    data.projects.forEach((p) => {
+      if (p.category) set.add(p.category);
+    });
+    return Array.from(set).sort();
+  }, [data?.projects]);
+
+  // Filtered projects
+  const filteredProjects = useMemo(() => {
+    if (!data?.projects) return [];
+    return data.projects.filter((p) => {
+      // Search query
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchName = (p.display_name || p.project_id).toLowerCase().includes(q);
+        const matchId = p.project_id.toLowerCase().includes(q);
+        const matchDesc = (p.description || "").toLowerCase().includes(q);
+        if (!matchName && !matchId && !matchDesc) return false;
+      }
+
+      // Status filter
+      if (filterStatus === "ATIVOS") {
+        if (!p.is_active || p.is_archived) return false;
+      } else if (filterStatus === "ARQUIVADOS") {
+        if (!p.is_archived) return false;
+      } else if (filterStatus === "SEM_OBSERVACOES") {
+        if (p.observation_count > 0) return false;
+      } else if (filterStatus === "EM_DESENVOLVIMENTO") {
+        if (p.is_archived || p.observation_count === 0) return false;
+      }
+
+      // Category filter
+      if (filterCategory !== "TODAS") {
+        if (p.category !== filterCategory) return false;
+      }
+
+      return true;
+    });
+  }, [data?.projects, filterStatus, filterCategory, searchQuery]);
+
   if (loading && !data) {
     return (
       <div style={{ padding: "32px", color: "#94a3b8", fontFamily: "monospace" }}>
-        Loading Command Center Overview...
+        Carregando Cockpit Operacional PUB Neural...
       </div>
     );
   }
@@ -60,7 +112,7 @@ export function OverviewView({
     const isAuthError = error.includes("401");
     return (
       <div style={{ padding: "32px", color: "#f87171", fontFamily: "monospace" }}>
-        Error loading Overview: {error}
+        Erro ao carregar Visão Geral: {error}
         <div style={{ marginTop: "16px", display: "flex", gap: "10px" }}>
           {isAuthError && onUnauthorized && (
             <button
@@ -75,7 +127,7 @@ export function OverviewView({
                 cursor: "pointer",
               }}
             >
-              🔐 Authenticate Session
+              🔐 Autenticar Sessão
             </button>
           )}
           <button
@@ -89,14 +141,14 @@ export function OverviewView({
               cursor: "pointer",
             }}
           >
-            Retry
+            Tentar Novamente
           </button>
         </div>
       </div>
     );
   }
 
-  // Extract exactly the ordered calendar days from daily_activity
+  // Calendar days for activity heatmap
   const calendarDays: string[] = [];
   if (data?.daily_activity) {
     for (const item of data.daily_activity) {
@@ -107,7 +159,6 @@ export function OverviewView({
   }
   calendarDays.sort();
 
-  // Helper to get count for a day/project
   const getDailyCount = (day: string, projectId: string): number => {
     const found = data?.daily_activity.find(
       (d) => d.day === day && d.project_id === projectId
@@ -122,6 +173,8 @@ export function OverviewView({
     if (count < 25) return "#2563eb";
     return "#3b82f6";
   };
+
+  const exec = data?.executive_summary;
 
   return (
     <div
@@ -170,11 +223,11 @@ export function OverviewView({
                 color: "#e0f2fe",
               }}
             >
-              V0.1
+              COCKPIT EXECUTIVO
             </span>
           </h1>
           <div style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>
-            Operational cockpit: observed projects, repository observations, active knowledge nodes
+            Cockpit operacional da PUB Core Holding: registro canônico de projetos, repositórios monitorados e governança neural
           </div>
         </div>
 
@@ -199,9 +252,8 @@ export function OverviewView({
                 fontFamily: "monospace",
               }}
             >
-              Database: {data?.database_health || "UNKNOWN"}
+              Banco de Dados: {data?.database_health === "HEALTHY" ? "SAUDÁVEL" : data?.database_health || "DESCONHECIDO"}
             </div>
-
 
             <div
               style={{
@@ -230,12 +282,12 @@ export function OverviewView({
                 fontFamily: "monospace",
               }}
             >
-              Projectors: {data?.projector_health || "UNKNOWN"}
+              Projetores: {data?.projector_health === "HEALTHY" ? "SAUDÁVEL" : data?.projector_health === "DEGRADED" ? "DEGRADADO" : data?.projector_health || "DESCONHECIDO"}
             </div>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ fontSize: "12px", color: "#94a3b8" }}>Window:</span>
+            <span style={{ fontSize: "12px", color: "#94a3b8" }}>Janela:</span>
             <select
               value={windowDays}
               onChange={(e) => setWindowDays(Number(e.target.value))}
@@ -249,9 +301,9 @@ export function OverviewView({
                 cursor: "pointer",
               }}
             >
-              <option value={7}>7 Days</option>
-              <option value={14}>14 Days</option>
-              <option value={30}>30 Days</option>
+              <option value={7}>7 Dias</option>
+              <option value={14}>14 Dias</option>
+              <option value={30}>30 Dias</option>
             </select>
             <button
               onClick={fetchOverview}
@@ -265,13 +317,95 @@ export function OverviewView({
                 cursor: "pointer",
               }}
             >
-              Refresh
+              Atualizar
             </button>
           </div>
         </div>
       </div>
 
-      {/* SECTION 0: CANDIDATE KNOWLEDGE AWAITING GOVERNANCE REVIEW */}
+      {/* SECTION: RESUMO EXECUTIVO DA PUB CORE HOLDING */}
+      {exec && (
+        <div style={{ marginBottom: "28px" }}>
+          <div
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              color: "#38bdf8",
+              marginBottom: "12px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            <span>Panorama Executivo da Holding</span>
+            <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 400 }}>
+              • Universo de projetos pubcoreagencia e atividade neural factual
+            </span>
+          </div>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+              gap: "12px",
+            }}
+          >
+            <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Total de Projetos</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: "#f8fafc", marginTop: "4px" }}>{exec.total_projects}</div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Registrados no catálogo</div>
+            </div>
+
+            <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Projetos Ativos</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: "#34d399", marginTop: "4px" }}>{exec.active_projects}</div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Em operação / ciclo ativo</div>
+            </div>
+
+            <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Repositórios Monitorados</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: "#38bdf8", marginTop: "4px" }}>{exec.monitored_repositories}</div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Com monitoramento ativo</div>
+            </div>
+
+            <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Observações (7d)</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: "#60a5fa", marginTop: "4px" }}>{exec.recent_observations_7d}</div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Telemetria de repositório</div>
+            </div>
+
+            <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Eventos Hoje (UTC)</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: "#c084fc", marginTop: "4px" }}>{exec.events_today}</div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Eventos de fluxo registrados</div>
+            </div>
+
+            <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Conhecimentos Candidatos</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: "#f59e0b", marginTop: "4px" }}>{exec.candidate_knowledge_count}</div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Aguardando governança</div>
+            </div>
+
+            <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Conhecimentos Adotados</div>
+              <div style={{ fontSize: "24px", fontWeight: 800, color: "#10b981", marginTop: "4px" }}>{exec.adopted_knowledge_count}</div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Validados soberanamente</div>
+            </div>
+
+            <div style={{ backgroundColor: "#0f172a", border: "1px solid #1e293b", borderRadius: "8px", padding: "14px" }}>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase" }}>Saúde Neural</div>
+              <div style={{ fontSize: "20px", fontWeight: 800, color: exec.neural_health === "SAUDAVEL" ? "#34d399" : "#fcd34d", marginTop: "6px" }}>
+                {exec.neural_health === "SAUDAVEL" ? "SAUDÁVEL" : "DEGRADADO"}
+              </div>
+              <div style={{ fontSize: "10px", color: "#64748b", marginTop: "2px" }}>Estado da infraestrutura</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SECTION 0: CONHECIMENTO CANDIDATO AGUARDANDO GOVERNANÇA */}
       <div style={{ marginBottom: "32px" }}>
         <div
           style={{
@@ -286,9 +420,9 @@ export function OverviewView({
             gap: "8px",
           }}
         >
-          <span>Candidate Knowledge Awaiting Governance ({candidates.length})</span>
+          <span>Conhecimento Candidato Aguardando Governança ({candidates.length})</span>
           <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 400 }}>
-            • empirical findings requiring sovereign review before promotion
+            • achados empíricos que exigem revisão soberana antes da promoção
           </span>
         </div>
 
@@ -303,7 +437,7 @@ export function OverviewView({
               fontSize: "13px",
             }}
           >
-            No candidate knowledge nodes awaiting governance review.
+            Nenhum nó de conhecimento candidato aguardando revisão de governança.
           </div>
         ) : (
           <div
@@ -339,7 +473,7 @@ export function OverviewView({
                       fontWeight: 600,
                     }}
                   >
-                    {cand.entity_type} • CANDIDATE
+                    {cand.entity_type} • CANDIDATO
                   </span>
                   <span
                     style={{
@@ -390,11 +524,11 @@ export function OverviewView({
                     paddingTop: "8px",
                   }}
                 >
-                  <div>Proposed By: {cand.proposed_by_actor_id || "unknown"} ({cand.proposed_by_actor_role || "AGENT"})</div>
-                  <div>Conflict State: {cand.conflict_state}</div>
+                  <div>Proposto por: {cand.proposed_by_actor_id || "desconhecido"} ({cand.proposed_by_actor_role || "AGENT"})</div>
+                  <div>Estado de Conflito: {cand.conflict_state}</div>
                   {cand.derived_from_experience_id && (
                     <div style={{ wordBreak: "break-all" }}>
-                      Derived From: {cand.derived_from_experience_id}
+                      Derivado de: {cand.derived_from_experience_id}
                     </div>
                   )}
                 </div>
@@ -413,7 +547,7 @@ export function OverviewView({
                         cursor: "pointer",
                       }}
                     >
-                      Inspect in Graph →
+                      Inspecionar no Grafo →
                     </button>
                   </div>
                 )}
@@ -423,28 +557,120 @@ export function OverviewView({
         )}
       </div>
 
-      {/* SECTION 1: OBSERVED PROJECT CARDS */}
+      {/* SECTION 1: PROJETOS DA HOLDING (CATÁLOGO CANÔNICO & ATIVIDADE) */}
       <div style={{ marginBottom: "32px" }}>
         <div
           style={{
-            fontSize: "13px",
-            fontWeight: 600,
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
-            color: "#94a3b8",
-            marginBottom: "12px",
             display: "flex",
+            justifyContent: "space-between",
             alignItems: "center",
-            gap: "8px",
+            flexWrap: "wrap",
+            gap: "12px",
+            marginBottom: "16px",
           }}
         >
-          <span>Observed Projects ({data?.projects.length || 0})</span>
-          <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 400 }}>
-            • strictly factual sources (repository observations and active knowledge nodes)
-          </span>
+          <div>
+            <div
+              style={{
+                fontSize: "13px",
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                color: "#94a3b8",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
+            >
+              <span>Projetos da PUB Core Holding ({filteredProjects.length} de {data?.projects.length || 0})</span>
+              <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 400 }}>
+                • Registro canônico, fontes factuais de observações e nós de conhecimento
+              </span>
+            </div>
+          </div>
+
+          {/* Filtros e Busca */}
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+            {/* Input de Busca */}
+            <input
+              type="text"
+              placeholder="Buscar projeto..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                padding: "6px 10px",
+                backgroundColor: "#0f172a",
+                border: "1px solid #334155",
+                borderRadius: "4px",
+                color: "#f8fafc",
+                fontSize: "12px",
+                outline: "none",
+                width: "160px",
+              }}
+            />
+
+            {/* Filtro de Categoria */}
+            <select
+              value={filterCategory}
+              onChange={(e) => setFilterCategory(e.target.value)}
+              style={{
+                padding: "6px 10px",
+                backgroundColor: "#0f172a",
+                border: "1px solid #334155",
+                borderRadius: "4px",
+                color: "#f8fafc",
+                fontSize: "12px",
+                cursor: "pointer",
+              }}
+            >
+              <option value="TODAS">Todas Categorias</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+
+            {/* Filtros de Status */}
+            <div
+              style={{
+                display: "flex",
+                backgroundColor: "#1e293b",
+                borderRadius: 4,
+                padding: 2,
+                border: "1px solid #334155",
+              }}
+            >
+              {(["TODOS", "ATIVOS", "EM_DESENVOLVIMENTO", "ARQUIVADOS", "SEM_OBSERVACOES"] as FilterStatus[]).map((st) => {
+                const labels: Record<FilterStatus, string> = {
+                  TODOS: "Todos",
+                  ATIVOS: "Ativos",
+                  EM_DESENVOLVIMENTO: "Com Atividade",
+                  ARQUIVADOS: "Arquivados",
+                  SEM_OBSERVACOES: "Sem Obs.",
+                };
+                return (
+                  <button
+                    key={st}
+                    onClick={() => setFilterStatus(st)}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 3,
+                      border: "none",
+                      fontSize: "11px",
+                      cursor: "pointer",
+                      backgroundColor: filterStatus === st ? "#0284c7" : "transparent",
+                      color: filterStatus === st ? "#ffffff" : "#94a3b8",
+                      transition: "all 0.1s ease",
+                    }}
+                  >
+                    {labels[st]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
-        {data?.projects.length === 0 ? (
+        {filteredProjects.length === 0 ? (
           <div
             style={{
               padding: "24px",
@@ -455,325 +681,361 @@ export function OverviewView({
               fontSize: "13px",
             }}
           >
-            No projects observed yet under current authorization scope.
+            Nenhum projeto encontrado para os filtros selecionados.
           </div>
         ) : (
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
               gap: "16px",
             }}
           >
-            {data?.projects.map((proj: OverviewProjectDTO) => (
-              <div
-                key={proj.project_id}
-                style={{
-                  backgroundColor: "#0f172a",
-                  border: "1px solid #1e293b",
-                  borderRadius: "8px",
-                  padding: "16px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "12px",
-                }}
-              >
+            {filteredProjects.map((proj: OverviewProjectDTO) => {
+              const stateBadgeConfig = (() => {
+                if (proj.is_archived || proj.project_state === "ARQUIVADO") {
+                  return { label: "Arquivado", color: "#94a3b8", bg: "rgba(100, 116, 139, 0.15)", border: "rgba(100, 116, 139, 0.3)" };
+                }
+                if (proj.observation_count > 0 || proj.project_state === "ATIVO_OBSERVADO") {
+                  return { label: "Ativo", color: "#34d399", bg: "rgba(16, 185, 129, 0.15)", border: "rgba(16, 185, 129, 0.3)" };
+                }
+                return { label: "Sem observações registradas", color: "#60a5fa", bg: "rgba(59, 130, 246, 0.1)", border: "rgba(59, 130, 246, 0.25)" };
+              })();
+
+              return (
                 <div
+                  key={proj.project_id}
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "flex-start",
-                  }}
-                >
-                  <div>
-                    <div
-                      style={{
-                        fontSize: "15px",
-                        fontWeight: 600,
-                        color: "#f1f5f9",
-                        fontFamily: "monospace",
-                      }}
-                    >
-                      {proj.project_id}
-                    </div>
-                    <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>
-                      {proj.observed_repository_count > 0
-                        ? `${proj.observed_repository_count} repository${proj.observed_repository_count === 1 ? "" : "ies"} observed`
-                        : "No repository observations recorded"}
-                    </div>
-                  </div>
-
-                  <div
-                    style={{
-                      fontSize: "11px",
-                      color: "#94a3b8",
-                      fontFamily: "monospace",
-                    }}
-                  >
-                    Active Nodes: <strong style={{ color: "#38bdf8" }}>{proj.active_node_count}</strong>
-                  </div>
-                </div>
-
-                {/* Metrics Grid */}
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr 1fr",
-                    gap: "8px",
-                    backgroundColor: "#1e293b",
-                    padding: "10px",
-                    borderRadius: "6px",
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: "10px", color: "#94a3b8", textTransform: "uppercase" }}>
-                      Today (UTC)
-                    </div>
-                    <div style={{ fontSize: "16px", fontWeight: 700, color: "#38bdf8" }}>
-                      {proj.activity_today}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "10px", color: "#94a3b8", textTransform: "uppercase" }}>
-                      7D (UTC)
-                    </div>
-                    <div style={{ fontSize: "16px", fontWeight: 700, color: "#e2e8f0" }}>
-                      {proj.activity_7d}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: "10px", color: "#94a3b8", textTransform: "uppercase" }}>
-                      Total Obs
-                    </div>
-                    <div style={{ fontSize: "16px", fontWeight: 700, color: "#cbd5e1" }}>
-                      {proj.observation_count}
-                    </div>
-                  </div>
-                </div>
-
-                {/* State & Governance Indicators */}
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: "8px",
-                    fontSize: "11px",
-                    fontFamily: "monospace",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    <span style={{ color: "#64748b" }}>STATE:</span>
-                    <span
-                      style={{
-                        padding: "2px 6px",
-                        borderRadius: "3px",
-                        backgroundColor:
-                          proj.project_state === "UNKNOWN"
-                            ? "rgba(100, 116, 139, 0.15)"
-                            : "rgba(56, 189, 248, 0.15)",
-                        color:
-                          proj.project_state === "UNKNOWN" ? "#94a3b8" : "#38bdf8",
-                        border: `1px solid ${
-                          proj.project_state === "UNKNOWN"
-                            ? "rgba(100, 116, 139, 0.3)"
-                            : "rgba(56, 189, 248, 0.3)"
-                        }`,
-                      }}
-                    >
-                      {proj.project_state}
-                    </span>
-                  </div>
-
-                  {proj.blocked_nodes_count > 0 ? (
-                    <span
-                      style={{
-                        padding: "2px 6px",
-                        borderRadius: "3px",
-                        backgroundColor: "rgba(239, 68, 68, 0.15)",
-                        color: "#f87171",
-                        border: "1px solid rgba(239, 68, 68, 0.3)",
-                      }}
-                    >
-                      Blocked Nodes: {proj.blocked_nodes_count}
-                    </span>
-                  ) : (
-                    <span style={{ color: "#475569" }}>Blocked Nodes: 0</span>
-                  )}
-                </div>
-
-                {/* Latest Operational Signal Section */}
-                <div
-                  style={{
-                    backgroundColor: "#090d16",
+                    backgroundColor: "#0f172a",
                     border: "1px solid #1e293b",
-                    borderRadius: "6px",
-                    padding: "8px 10px",
-                    fontSize: "11px",
+                    borderRadius: "8px",
+                    padding: "16px",
                     display: "flex",
                     flexDirection: "column",
-                    gap: "4px",
+                    gap: "12px",
                   }}
                 >
                   <div
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
-                      alignItems: "center",
+                      alignItems: "flex-start",
                     }}
                   >
-                    <span
-                      style={{
-                        fontSize: "9px",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.05em",
-                        color: "#64748b",
-                        fontWeight: 600,
-                      }}
-                    >
-                      LATEST SIGNAL
-                    </span>
-                    {proj.latest_signal ? (
-                      <span
+                    <div>
+                      <div
                         style={{
-                          fontSize: "9px",
-                          padding: "1px 5px",
-                          borderRadius: "3px",
-                          backgroundColor:
-                            proj.latest_signal.type === "TASK_EXPERIENCE_RECORDED"
-                              ? "rgba(16, 185, 129, 0.15)"
-                              : "rgba(59, 130, 246, 0.15)",
-                          color:
-                            proj.latest_signal.type === "TASK_EXPERIENCE_RECORDED"
-                              ? "#34d399"
-                              : "#60a5fa",
+                          fontSize: "15px",
+                          fontWeight: 700,
+                          color: "#f1f5f9",
+                        }}
+                      >
+                        {proj.display_name || proj.project_id}
+                      </div>
+                      <div style={{ fontSize: "11px", color: "#64748b", fontFamily: "monospace", marginTop: "2px" }}>
+                        {proj.project_id}
+                      </div>
+                      {proj.description && (
+                        <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "4px", lineHeight: "1.3", maxHeight: "32px", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {proj.description}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
+                      {proj.category && (
+                        <span
+                          style={{
+                            fontSize: "9px",
+                            padding: "2px 6px",
+                            borderRadius: "3px",
+                            backgroundColor: "#1e293b",
+                            color: "#38bdf8",
+                            fontWeight: 600,
+                            fontFamily: "monospace",
+                          }}
+                        >
+                          {proj.category}
+                        </span>
+                      )}
+                      <div
+                        style={{
+                          fontSize: "11px",
+                          color: "#94a3b8",
                           fontFamily: "monospace",
                         }}
                       >
-                        {proj.latest_signal.type === "TASK_EXPERIENCE_RECORDED"
-                          ? "TASK SIGNAL"
-                          : "TELEMETRY"}
-                      </span>
-                    ) : null}
+                        Nós Ativos: <strong style={{ color: "#38bdf8" }}>{proj.active_node_count}</strong>
+                      </div>
+                    </div>
                   </div>
 
-                  {proj.latest_signal ? (
-                    <>
-                      <div
-                        style={{
-                          color: "#f1f5f9",
-                          fontWeight: 500,
-                          lineHeight: "1.3",
-                          wordBreak: "break-word",
-                        }}
-                      >
-                        {proj.latest_signal.summary}
+                  {/* Metrics Grid */}
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr 1fr",
+                      gap: "8px",
+                      backgroundColor: "#1e293b",
+                      padding: "10px",
+                      borderRadius: "6px",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: "10px", color: "#94a3b8", textTransform: "uppercase" }}>
+                        Hoje (UTC)
                       </div>
-                      <div
+                      <div style={{ fontSize: "16px", fontWeight: 700, color: "#38bdf8" }}>
+                        {proj.activity_today}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "10px", color: "#94a3b8", textTransform: "uppercase" }}>
+                        7 Dias (UTC)
+                      </div>
+                      <div style={{ fontSize: "16px", fontWeight: 700, color: "#e2e8f0" }}>
+                        {proj.activity_7d}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "10px", color: "#94a3b8", textTransform: "uppercase" }}>
+                        Total Obs.
+                      </div>
+                      <div style={{ fontSize: "16px", fontWeight: 700, color: "#cbd5e1" }}>
+                        {proj.observation_count}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Estado e Indicadores de Governança */}
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontSize: "11px",
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ color: "#64748b" }}>ESTADO:</span>
+                      <span
                         style={{
-                          display: "flex",
-                          flexWrap: "wrap",
-                          justifyContent: "space-between",
-                          color: "#64748b",
+                          padding: "2px 6px",
+                          borderRadius: "3px",
+                          backgroundColor: stateBadgeConfig.bg,
+                          color: stateBadgeConfig.color,
+                          border: `1px solid ${stateBadgeConfig.border}`,
                           fontSize: "10px",
-                          marginTop: "2px",
-                          gap: "4px",
+                          fontWeight: 600,
                         }}
                       >
-                        <span>
-                          {proj.latest_signal.timestamp
-                            ? new Date(proj.latest_signal.timestamp).toUTCString().slice(0, 22)
-                            : ""}
-                        </span>
+                        {stateBadgeConfig.label}
+                      </span>
+                    </div>
+
+                    {proj.blocked_nodes_count > 0 ? (
+                      <span
+                        style={{
+                          padding: "2px 6px",
+                          borderRadius: "3px",
+                          backgroundColor: "rgba(239, 68, 68, 0.15)",
+                          color: "#f87171",
+                          border: "1px solid rgba(239, 68, 68, 0.3)",
+                        }}
+                      >
+                        Nós Bloqueados: {proj.blocked_nodes_count}
+                      </span>
+                    ) : (
+                      <span style={{ color: "#475569" }}>Nós Bloqueados: 0</span>
+                    )}
+                  </div>
+
+                  {/* Latest Operational Signal Section */}
+                  <div
+                    style={{
+                      backgroundColor: "#090d16",
+                      border: "1px solid #1e293b",
+                      borderRadius: "6px",
+                      padding: "8px 10px",
+                      fontSize: "11px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "4px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: "9px",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.05em",
+                          color: "#64748b",
+                          fontWeight: 600,
+                        }}
+                      >
+                        ÚLTIMO SINAL OPERACIONAL
+                      </span>
+                      {proj.latest_signal ? (
                         <span
-                          title={`Source: ${proj.latest_signal.source} | Locator: ${proj.latest_signal.locator}`}
                           style={{
+                            fontSize: "9px",
+                            padding: "1px 5px",
+                            borderRadius: "3px",
+                            backgroundColor:
+                              proj.latest_signal.type === "TASK_EXPERIENCE_RECORDED"
+                                ? "rgba(16, 185, 129, 0.15)"
+                                : "rgba(59, 130, 246, 0.15)",
+                            color:
+                              proj.latest_signal.type === "TASK_EXPERIENCE_RECORDED"
+                                ? "#34d399"
+                                : "#60a5fa",
                             fontFamily: "monospace",
-                            color: "#94a3b8",
-                            maxWidth: "180px",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
                           }}
                         >
-                          {proj.latest_signal.locator}
+                          {proj.latest_signal.type === "TASK_EXPERIENCE_RECORDED"
+                            ? "SINAL DE TAREFA"
+                            : "TELEMETRIA"}
                         </span>
-                      </div>
-                    </>
-                  ) : (
-                    <div style={{ color: "#475569", fontStyle: "italic" }}>
-                      No operational signal recorded
+                      ) : null}
                     </div>
-                  )}
-                </div>
 
-                {/* Secondary Meta */}
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontSize: "11px",
-                    color: "#64748b",
-                  }}
-                >
-                  <span>
-                    Last Observed:{" "}
-                    {proj.last_observation_at
-                      ? new Date(proj.last_observation_at).toUTCString().slice(0, 16)
-                      : "UNKNOWN"}
-                  </span>
-                </div>
+                    {proj.latest_signal ? (
+                      <>
+                        <div
+                          style={{
+                            color: "#f1f5f9",
+                            fontWeight: 500,
+                            lineHeight: "1.3",
+                            wordBreak: "break-word",
+                          }}
+                        >
+                          {proj.latest_signal.summary}
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            flexWrap: "wrap",
+                            justifyContent: "space-between",
+                            color: "#64748b",
+                            fontSize: "10px",
+                            marginTop: "2px",
+                            gap: "4px",
+                          }}
+                        >
+                          <span>
+                            {proj.latest_signal.timestamp
+                              ? new Date(proj.latest_signal.timestamp).toUTCString().slice(0, 22)
+                              : ""}
+                          </span>
+                          <span
+                            title={`Origem: ${proj.latest_signal.source} | Localizador: ${proj.latest_signal.locator}`}
+                            style={{
+                              fontFamily: "monospace",
+                              color: "#94a3b8",
+                              maxWidth: "180px",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {proj.latest_signal.locator}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ color: "#475569", fontStyle: "italic" }}>
+                        Nenhum sinal operacional registrado
+                      </div>
+                    )}
+                  </div>
 
-                {/* Action Drill-downs */}
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "8px",
-                    marginTop: "4px",
-                    paddingTop: "8px",
-                    borderTop: "1px solid #1e293b",
-                  }}
-                >
-                  <button
-                    onClick={() => onSelectProjectForGraph?.(proj.project_id)}
+                  {/* Secondary Meta: Last Observed & GitHub */}
+                  <div
                     style={{
-                      flex: 1,
-                      backgroundColor: "#1e293b",
-                      color: "#38bdf8",
-                      border: "1px solid #334155",
-                      borderRadius: "4px",
-                      padding: "6px 8px",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
                       fontSize: "11px",
-                      cursor: "pointer",
-                      fontWeight: 500,
+                      color: "#64748b",
                     }}
                   >
-                    View Graph →
-                  </button>
-                  <button
-                    onClick={() => onSelectProjectForTimeline?.(proj.project_id)}
+                    <span>
+                      Última Obs:{" "}
+                      {proj.last_observation_at
+                        ? new Date(proj.last_observation_at).toUTCString().slice(0, 16)
+                        : "Nenhuma"}
+                    </span>
+                    {proj.github_url && (
+                      <a
+                        href={proj.github_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: "#38bdf8", textDecoration: "none" }}
+                      >
+                        GitHub ↗
+                      </a>
+                    )}
+                  </div>
+
+                  {/* Ações de Detalhamento */}
+                  <div
                     style={{
-                      flex: 1,
-                      backgroundColor: "#1e293b",
-                      color: "#94a3b8",
-                      border: "1px solid #334155",
-                      borderRadius: "4px",
-                      padding: "6px 8px",
-                      fontSize: "11px",
-                      cursor: "pointer",
-                      fontWeight: 500,
+                      display: "flex",
+                      gap: "8px",
+                      marginTop: "4px",
+                      paddingTop: "8px",
+                      borderTop: "1px solid #1e293b",
                     }}
                   >
-                    Timeline →
-                  </button>
+                    <button
+                      onClick={() => onSelectProjectForGraph?.(proj.project_id)}
+                      style={{
+                        flex: 1,
+                        backgroundColor: "#1e293b",
+                        color: "#38bdf8",
+                        border: "1px solid #334155",
+                        borderRadius: "4px",
+                        padding: "6px 8px",
+                        fontSize: "11px",
+                        cursor: "pointer",
+                        fontWeight: 500,
+                      }}
+                    >
+                      Ver no Grafo →
+                    </button>
+                    <button
+                      onClick={() => onSelectProjectForTimeline?.(proj.project_id)}
+                      style={{
+                        flex: 1,
+                        backgroundColor: "#1e293b",
+                        color: "#94a3b8",
+                        border: "1px solid #334155",
+                        borderRadius: "4px",
+                        padding: "6px 8px",
+                        fontSize: "11px",
+                        cursor: "pointer",
+                        fontWeight: 500,
+                      }}
+                    >
+                      Linha do Tempo →
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* SECTION 2: DAILY ACTIVITY HEATMAP */}
+      {/* SECTION 2: MAPA DE CALOR DE ATIVIDADE DIÁRIA */}
       <div>
         <div
           style={{
@@ -788,13 +1050,13 @@ export function OverviewView({
             gap: "8px",
           }}
         >
-          <span>Observed Repository Activity ({data?.window_days || windowDays} Calendar Days UTC)</span>
+          <span>Atividade de Repositórios Observados ({data?.window_days || windowDays} Dias Calendário UTC)</span>
           <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 400 }}>
-            • 0 indicates 0 observations recorded (not project inactivity)
+            • 0 indica ausência de novas observações registradas no intervalo (e não inatividade do projeto)
           </span>
         </div>
 
-        {data?.projects.length === 0 || calendarDays.length === 0 ? (
+        {data?.projects.filter(p => p.observation_count > 0).length === 0 || calendarDays.length === 0 ? (
           <div
             style={{
               padding: "24px",
@@ -805,7 +1067,7 @@ export function OverviewView({
               fontSize: "13px",
             }}
           >
-            No daily activity observed within this window.
+            Nenhuma atividade diária observada nesta janela temporal.
           </div>
         ) : (
           <div
@@ -835,7 +1097,7 @@ export function OverviewView({
                       width: "180px",
                     }}
                   >
-                    Observed Project
+                    Projeto Observado
                   </th>
                   {calendarDays.map((day) => (
                     <th
@@ -861,72 +1123,74 @@ export function OverviewView({
                       width: "80px",
                     }}
                   >
-                    Window Sum
+                    Soma Janela
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {data?.projects.map((proj) => {
-                  let sum = 0;
+                {data?.projects
+                  .filter((p) => p.observation_count > 0)
+                  .map((proj) => {
+                    let sum = 0;
 
-                  return (
-                    <tr key={proj.project_id}>
-                      <td
-                        style={{
-                          padding: "8px 12px",
-                          borderBottom: "1px solid #1e293b",
-                          fontFamily: "monospace",
-                          color: "#f1f5f9",
-                        }}
-                      >
-                        {proj.project_id}
-                      </td>
-                      {calendarDays.map((day) => {
-                        const cnt = getDailyCount(day, proj.project_id);
-                        sum += cnt;
-                        return (
-                          <td
-                            key={day}
-                            style={{
-                              padding: "6px",
-                              borderBottom: "1px solid #1e293b",
-                              textAlign: "center",
-                            }}
-                          >
-                            <div
-                              title={`${proj.project_id} on ${day} (UTC): ${cnt} observations recorded`}
+                    return (
+                      <tr key={proj.project_id}>
+                        <td
+                          style={{
+                            padding: "8px 12px",
+                            borderBottom: "1px solid #1e293b",
+                            fontFamily: "monospace",
+                            color: "#f1f5f9",
+                          }}
+                        >
+                          {proj.display_name || proj.project_id}
+                        </td>
+                        {calendarDays.map((day) => {
+                          const cnt = getDailyCount(day, proj.project_id);
+                          sum += cnt;
+                          return (
+                            <td
+                              key={day}
                               style={{
-                                width: "24px",
-                                height: "24px",
-                                margin: "0 auto",
-                                borderRadius: "3px",
-                                backgroundColor: getIntensityColor(cnt),
-                                color: cnt > 0 ? "#ffffff" : "#475569",
-                                fontSize: "10px",
-                                lineHeight: "24px",
-                                fontFamily: "monospace",
+                                padding: "6px",
+                                borderBottom: "1px solid #1e293b",
+                                textAlign: "center",
                               }}
                             >
-                              {cnt > 0 ? cnt : "0"}
-                            </div>
-                          </td>
-                        );
-                      })}
-                      <td
-                        style={{
-                          padding: "8px 12px",
-                          borderBottom: "1px solid #1e293b",
-                          textAlign: "right",
-                          fontFamily: "monospace",
-                          fontWeight: 600,
-                          color: sum > 0 ? "#38bdf8" : "#64748b",
-                        }}
-                      >
-                        {sum}
-                      </td>
-                    </tr>
-                  );
-                })}
+                              <div
+                                title={`${proj.project_id} em ${day} (UTC): ${cnt} observações registradas`}
+                                style={{
+                                  width: "24px",
+                                  height: "24px",
+                                  margin: "0 auto",
+                                  borderRadius: "3px",
+                                  backgroundColor: getIntensityColor(cnt),
+                                  color: cnt > 0 ? "#ffffff" : "#475569",
+                                  fontSize: "10px",
+                                  lineHeight: "24px",
+                                  fontFamily: "monospace",
+                                }}
+                              >
+                                {cnt > 0 ? cnt : "0"}
+                              </div>
+                            </td>
+                          );
+                        })}
+                        <td
+                          style={{
+                            padding: "8px 12px",
+                            borderBottom: "1px solid #1e293b",
+                            textAlign: "right",
+                            fontFamily: "monospace",
+                            fontWeight: 600,
+                            color: sum > 0 ? "#38bdf8" : "#64748b",
+                          }}
+                        >
+                          {sum}
+                        </td>
+                      </tr>
+                    );
+                  })}
               </tbody>
             </table>
           </div>

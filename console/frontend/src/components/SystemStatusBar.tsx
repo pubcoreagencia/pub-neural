@@ -123,7 +123,7 @@ export function SystemStatusBar({
               transition: "all 0.15s ease",
             }}
           >
-            ⌘ Overview
+            ⌘ Visão Geral
           </button>
           <button
             type="button"
@@ -140,7 +140,7 @@ export function SystemStatusBar({
               transition: "all 0.15s ease",
             }}
           >
-            ✦ Knowledge Graph
+            ✦ Grafo de Conhecimento
           </button>
 
           <button
@@ -158,7 +158,7 @@ export function SystemStatusBar({
               transition: "all 0.15s ease",
             }}
           >
-            ◷ Event Timeline
+            ◷ Linha do Tempo
           </button>
         </div>
       </div>
@@ -212,7 +212,7 @@ export function SystemStatusBar({
         {/* Active Trust Zone & Role */}
         {status?.active_trust_zone && (
           <div style={{ fontSize: "0.7rem", color: "#94a3b8", display: "flex", gap: 4 }}>
-            <span style={{ color: "#64748b" }}>Zone:</span>
+            <span style={{ color: "#64748b" }}>Zona:</span>
             <span style={{ color: "#38bdf8", fontFamily: "monospace" }}>
               {status.active_trust_zone}
             </span>
@@ -221,7 +221,7 @@ export function SystemStatusBar({
 
         {status?.active_actor_role && (
           <div style={{ fontSize: "0.7rem", color: "#94a3b8", display: "flex", gap: 4 }}>
-            <span style={{ color: "#64748b" }}>Role:</span>
+            <span style={{ color: "#64748b" }}>Papel:</span>
             <span style={{ color: "#34d399", fontWeight: 600 }}>
               {status.active_actor_role}
             </span>
@@ -260,7 +260,7 @@ export function SystemStatusBar({
                 cursor: "pointer",
               }}
             >
-              Capabilities ▾
+              Capacidades ▾
             </button>
 
             {showCapabilities && (
@@ -289,7 +289,7 @@ export function SystemStatusBar({
                   }}
                 >
                   <span style={{ fontWeight: 700, fontSize: "0.72rem", color: "#f8fafc" }}>
-                    VERIFIED CAPABILITIES
+                    CAPACIDADES VERIFICADAS
                   </span>
                   <button
                     type="button"
@@ -330,7 +330,7 @@ export function SystemStatusBar({
           type="button"
           onClick={fetchStatus}
           disabled={loading}
-          title="Refresh System Status"
+          title="Atualizar Estado do Sistema"
           style={{
             background: "transparent",
             border: "1px solid #334155",
@@ -355,7 +355,7 @@ export function SystemStatusBar({
               <button
                 type="button"
                 onClick={onLogout}
-                title="End authorized session"
+                title="Encerrar sessão autenticada"
                 style={{
                   background: "#1e293b",
                   border: "1px solid #475569",
@@ -367,14 +367,14 @@ export function SystemStatusBar({
                   cursor: "pointer",
                 }}
               >
-                Logout
+                Sair
               </button>
             </div>
           ) : (
             <button
               type="button"
               onClick={onOpenLogin}
-              title="Authenticate with trusted actor"
+              title="Autenticar com actor confiável"
               style={{
                 background: "#0284c7",
                 border: "none",
@@ -386,7 +386,7 @@ export function SystemStatusBar({
                 cursor: "pointer",
               }}
             >
-              🔐 Login
+              🔐 Entrar
             </button>
           )}
         </div>

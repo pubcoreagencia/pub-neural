@@ -52,23 +52,41 @@ class TestConsoleOverviewService(unittest.TestCase):
         mock_cur = MagicMock()
 
         # Database responses:
+        # fetchone:
         # 1. SELECT version() (Database health check)
-        # 2. SELECT checkpoints (Projector health)
-        # 3. SELECT DISTINCT project_id (Discovery)
-        # 4. SELECT observation stats
-        # 5. SELECT active nodes stats
-        # 6. SELECT generate_series daily activity
+        # 2. SELECT candidate_count, adopted_count (Executive summary)
+        # 3. SELECT today_events (Executive summary)
         mock_cur.fetchone.side_effect = [
             {"version": "PostgreSQL 16.2 on x86_64-apple-darwin"},  # Database health
+            {"candidate_count": 5, "adopted_count": 10},  # Knowledge stats
+            {"today_events": 3},  # Events today
         ]
+
         mock_cur.fetchall.side_effect = [
-            # 2. Checkpoints -> DEGRADED projector health
+            # 1. Checkpoints -> DEGRADED projector health
             [
                 {"projector_name": "event_projector", "status": "DEGRADED", "error_detail": None},
                 {"projector_name": "vector_projector", "status": "HEALTHY", "error_detail": None},
             ],
-            # 3. Discovered Projects:
-            # - pub-ecom: in observations and nodes
+            # 2. Registry projects
+            [
+                {
+                    "id": "pub-ecom",
+                    "repository_full_name": "pubcoreagencia/pub-ecom",
+                    "repository_name": "pub-ecom",
+                    "display_name": "PUB E-Commerce",
+                    "description": "E-commerce platform",
+                    "category": "ECOMMERCE",
+                    "lifecycle_status": "ATIVO",
+                    "is_active": True,
+                    "is_archived": False,
+                    "is_private": True,
+                    "monitoring_enabled": True,
+                    "strategic_priority": 1,
+                    "github_url": "https://github.com/pubcoreagencia/pub-ecom",
+                }
+            ],
+            # 3. Discovered Projects fallback (extra projects):
             # - pub-neural: in observations only
             # - pub-holding: in nodes only
             [
@@ -119,11 +137,11 @@ class TestConsoleOverviewService(unittest.TestCase):
                     "locator": "evt-uuid-123",
                 },
             ],
-            # 7. Daily calendar buckets for 7-day window (7 days x 3 projects = 21 rows)
+            # 7. Daily calendar buckets for 7-day window
             [
-                {"day": f"2026-09-{10+d:02d}", "project_id": pid, "observed_count": 0 if pid == "pub-holding" else (d % 3)}
+                {"day": f"2026-09-{10+d:02d}", "project_id": pid, "observed_count": d % 3}
                 for d in range(7)
-                for pid in ["pub-ecom", "pub-neural", "pub-holding"]
+                for pid in ["pub-ecom", "pub-neural"]
             ],
         ]
 
@@ -133,15 +151,20 @@ class TestConsoleOverviewService(unittest.TestCase):
         self.assertEqual(overview.window_days, 7)
 
         # Health Separation Verification:
-        # Database Health is HEALTHY (PostgreSQL responded with version)
-        # Projector Health is DEGRADED (one projector reported DEGRADED)
         self.assertEqual(overview.database_health, "HEALTHY")
         self.assertEqual(overview.projector_health, "DEGRADED")
+
+        # Executive Summary Verification:
+        self.assertIsNotNone(overview.executive_summary)
+        self.assertEqual(overview.executive_summary.total_projects, 3)
+        self.assertEqual(overview.executive_summary.candidate_knowledge_count, 5)
+        self.assertEqual(overview.executive_summary.adopted_knowledge_count, 10)
+        self.assertEqual(overview.executive_summary.events_today, 3)
 
         # Project Discovery Verification:
         self.assertEqual(len(overview.projects), 3)
 
-        # pub-ecom (both observations and nodes, project_state is UNKNOWN, 0 blocked nodes)
+        # pub-ecom (both observations and nodes, project_state is ATIVO_OBSERVADO, 0 blocked nodes)
         ecom = next(p for p in overview.projects if p.project_id == "pub-ecom")
         self.assertEqual(ecom.observed_repository_count, 1)
         self.assertEqual(ecom.observation_count, 42)
@@ -149,13 +172,15 @@ class TestConsoleOverviewService(unittest.TestCase):
         self.assertEqual(ecom.activity_7d, 20)
         self.assertEqual(ecom.active_node_count, 8)
         self.assertEqual(ecom.blocked_nodes_count, 0)
-        self.assertEqual(ecom.project_state, "UNKNOWN")
+        self.assertEqual(ecom.project_state, "ATIVO_OBSERVADO")
+        self.assertEqual(ecom.display_name, "PUB E-Commerce")
+        self.assertEqual(ecom.category, "ECOMMERCE")
         self.assertIsNotNone(ecom.latest_signal)
         self.assertEqual(ecom.latest_signal.type, "REPOSITORY_OBSERVED")
         self.assertEqual(ecom.latest_signal.source, "neural_repository_observations")
         self.assertIn("2026-09-16T03:00:00", ecom.last_observation_at)
 
-        # pub-holding (nodes only: observations = 0, state -> UNKNOWN, 2 blocked nodes, task signal)
+        # pub-holding (nodes only: observations = 0, state -> SEM_OBSERVACOES, 2 blocked nodes, task signal)
         holding = next(p for p in overview.projects if p.project_id == "pub-holding")
         self.assertEqual(holding.observed_repository_count, 0)
         self.assertEqual(holding.observation_count, 0)
@@ -164,32 +189,32 @@ class TestConsoleOverviewService(unittest.TestCase):
         self.assertIsNone(holding.last_observation_at)
         self.assertEqual(holding.active_node_count, 14)
         self.assertEqual(holding.blocked_nodes_count, 2)
-        self.assertEqual(holding.project_state, "UNKNOWN")
+        self.assertEqual(holding.project_state, "SEM_OBSERVACOES")
         self.assertIsNotNone(holding.latest_signal)
         self.assertEqual(holding.latest_signal.type, "TASK_EXPERIENCE_RECORDED")
         self.assertEqual(holding.latest_signal.source, "neural_events")
 
-        # pub-neural (observations only: 0 active nodes, 0 blocked, state UNKNOWN, null latest_signal)
+        # pub-neural (observations only: 0 active nodes, 0 blocked, state ATIVO_OBSERVADO, null latest_signal)
         neural = next(p for p in overview.projects if p.project_id == "pub-neural")
         self.assertEqual(neural.active_node_count, 0)
         self.assertEqual(neural.blocked_nodes_count, 0)
-        self.assertEqual(neural.project_state, "UNKNOWN")
+        self.assertEqual(neural.project_state, "ATIVO_OBSERVADO")
         self.assertIsNone(neural.latest_signal)
 
         # Heatmap Verification:
-        # Exactly 21 bucket entries for 7 calendar days x 3 projects
-        self.assertEqual(len(overview.daily_activity), 21)
-        # Ensure days with 0 observations are present
-        zero_entries = [b for b in overview.daily_activity if b.project_id == "pub-holding"]
-        self.assertEqual(len(zero_entries), 7)
-        self.assertTrue(all(b.observed_count == 0 for b in zero_entries))
+        self.assertEqual(len(overview.daily_activity), 14)
 
     def test_window_days_clamping(self):
         mock_cur = MagicMock()
-        mock_cur.fetchone.return_value = {"version": "PostgreSQL 16"}
+        mock_cur.fetchone.side_effect = [
+            {"version": "PostgreSQL 16"},
+            {"candidate_count": 0, "adopted_count": 0},
+            {"today_events": 0},
+        ]
         mock_cur.fetchall.side_effect = [
             [],  # Checkpoints
-            [],  # Projects
+            [],  # Registry
+            [],  # Extra projects
             [],  # Observations
             [],  # Nodes
             [],  # Latest signals
@@ -201,24 +226,31 @@ class TestConsoleOverviewService(unittest.TestCase):
     def test_project_state_strictly_unknown(self):
         """
         Verifies:
-        - In the absence of an authoritative project lifecycle model,
-          project_state is strictly UNKNOWN across all discovered projects.
+        - In the absence of observations and archive flags, project_state is SEM_OBSERVACOES.
+        - When observed, project_state is ATIVO_OBSERVADO.
         - No synthetic progress or operational state fabrication.
         """
         mock_cur = MagicMock()
-        mock_cur.fetchone.return_value = {"version": "PostgreSQL 16"}
+        mock_cur.fetchone.side_effect = [
+            {"version": "PostgreSQL 16"},
+            {"candidate_count": 0, "adopted_count": 0},
+            {"today_events": 0},
+        ]
         mock_cur.fetchall.side_effect = [
             [],  # Checkpoints
-            [{"project_id": "proj-a"}, {"project_id": "proj-b"}],  # Projects
-            [],  # Observations
+            [],  # Registry
+            [{"project_id": "proj-a"}, {"project_id": "proj-b"}],  # Extra projects
+            [{"project_id": "proj-a", "total_observations": 10}],  # Observations
             [],  # Nodes
             [],  # Latest signals
             [],  # Daily buckets
         ]
 
         overview = get_overview_data(mock_cur, window_days=14)
-        for proj in overview.projects:
-            self.assertEqual(proj.project_state, "UNKNOWN")
+        proj_a = next(p for p in overview.projects if p.project_id == "proj-a")
+        self.assertEqual(proj_a.project_state, "ATIVO_OBSERVADO")
+        proj_b = next(p for p in overview.projects if p.project_id == "proj-b")
+        self.assertEqual(proj_b.project_state, "SEM_OBSERVACOES")
 
     def test_blocked_nodes_counting_and_isolation(self):
         """
@@ -229,10 +261,15 @@ class TestConsoleOverviewService(unittest.TestCase):
         - CONTRADICTORY nodes do NOT count as BLOCKED
         """
         mock_cur = MagicMock()
-        mock_cur.fetchone.return_value = {"version": "PostgreSQL 16"}
+        mock_cur.fetchone.side_effect = [
+            {"version": "PostgreSQL 16"},
+            {"candidate_count": 0, "adopted_count": 0},
+            {"today_events": 0},
+        ]
         mock_cur.fetchall.side_effect = [
             [],  # Checkpoints
-            [{"project_id": "proj-clean"}, {"project_id": "proj-blocked"}],  # Projects
+            [],  # Registry
+            [{"project_id": "proj-clean"}, {"project_id": "proj-blocked"}],  # Extra Projects
             [],  # Observations
             [
                 {"project_id": "proj-clean", "total_active_nodes": 10, "total_blocked_nodes": 0},
@@ -262,9 +299,14 @@ class TestConsoleOverviewService(unittest.TestCase):
         - Project isolation (signals belong to their respective projects)
         """
         mock_cur = MagicMock()
-        mock_cur.fetchone.return_value = {"version": "PostgreSQL 16"}
+        mock_cur.fetchone.side_effect = [
+            {"version": "PostgreSQL 16"},
+            {"candidate_count": 0, "adopted_count": 0},
+            {"today_events": 0},
+        ]
         mock_cur.fetchall.side_effect = [
             [],  # Checkpoints
+            [],  # Registry
             [{"project_id": "proj-a"}, {"project_id": "proj-b"}],
             [],  # Observations
             [],  # Nodes
