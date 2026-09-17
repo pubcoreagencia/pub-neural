@@ -51,6 +51,10 @@ from console.backend.services.graph_service import (
     get_graph_backbone,
     get_neighborhood,
 )
+from console.backend.services.git_graph_service import (
+    get_git_topology,
+    get_git_node_detail,
+)
 from console.backend.services.search_service import execute_console_search
 from console.backend.services.status_service import get_system_status
 from console.backend.services.timeline_service import get_event_detail, get_events_list
@@ -491,6 +495,24 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                     self._send_json(200, graph_dto.to_dict())
                 return
 
+            # 5b2. Git Repository Graph endpoint: /api/v1/graph/repository
+            if path == "/api/v1/graph/repository":
+                repo_param = params.get("repository", ["pubcoreagencia/pubcore"])[0]
+                branch_param = params.get("branch", ["main"])[0]
+                path_param = params.get("path", [""])[0]
+                depth_param = int(params.get("depth", [1])[0])
+                limit_param = int(params.get("limit", [100])[0])
+
+                git_graph = get_git_topology(
+                    repo=repo_param,
+                    branch=branch_param,
+                    base_path=path_param,
+                    depth=depth_param,
+                    limit=limit_param,
+                )
+                self._send_json(200, git_graph.to_dict())
+                return
+
             # 5c. Edge Detail endpoint: /api/v1/edges/{edge_id}
             match_edge = re.match(r"^/api/v1/edges/([^/]+)$", path)
             if match_edge:
@@ -544,6 +566,12 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
             match_entity = re.match(r"^/api/v1/entities/([^/]+)$", path)
             if match_entity:
                 entity_id = match_entity.group(1)
+                # First check Git topology objects (repo:, dir:, file:, commit:)
+                git_detail = get_git_node_detail(entity_id)
+                if git_detail:
+                    self._send_json(200, git_detail)
+                    return
+
                 with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
                     detail_dto = get_entity_detail(cur, entity_id)
                     if not detail_dto:

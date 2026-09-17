@@ -351,6 +351,78 @@ export function InspectorPanel({
           </section>
         )}
 
+        {/* 3b. GIT SOURCE PROVENANCE METADATA */}
+        {(entity as any).git_metadata && (
+          <section>
+            <div style={sectionTitleStyle}>GIT SOURCE OF TRUTH PROVENANCE</div>
+            <div
+              style={{
+                padding: "12px",
+                borderRadius: 6,
+                backgroundColor: "#16233b",
+                border: "1px solid #0284c7",
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                <span style={{ color: "#94a3b8" }}>Repository</span>
+                <span style={{ color: "#38bdf8", fontWeight: 600, fontFamily: "monospace" }}>
+                  {(entity as any).git_metadata.repository}
+                </span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                <span style={{ color: "#94a3b8" }}>Branch</span>
+                <span style={{ color: "#34d399", fontWeight: 600, fontFamily: "monospace" }}>
+                  {(entity as any).git_metadata.branch || "main"}
+                </span>
+              </div>
+              {(entity as any).git_metadata.path && (
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                  <span style={{ color: "#94a3b8" }}>Tree Path</span>
+                  <span style={{ color: "#f8fafc", fontFamily: "monospace", wordBreak: "break-all" }}>
+                    {(entity as any).git_metadata.path}
+                  </span>
+                </div>
+              )}
+              {(entity as any).git_metadata.sha && (
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                  <span style={{ color: "#94a3b8" }}>Git Object SHA</span>
+                  <span style={{ color: "#a78bfa", fontFamily: "monospace" }}>
+                    {(entity as any).git_metadata.sha}
+                  </span>
+                </div>
+              )}
+              {(entity as any).git_metadata.size !== undefined && (
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
+                  <span style={{ color: "#94a3b8" }}>Size</span>
+                  <span style={{ color: "#cbd5e1", fontFamily: "monospace" }}>
+                    {(entity as any).git_metadata.size} bytes
+                  </span>
+                </div>
+              )}
+              {(entity as any).git_metadata.github_url && (
+                <div style={{ marginTop: 4 }}>
+                  <a
+                    href={(entity as any).git_metadata.github_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      display: "inline-block",
+                      color: "#38bdf8",
+                      fontSize: "0.75rem",
+                      textDecoration: "underline",
+                    }}
+                  >
+                    View on GitHub ↗
+                  </a>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
         {/* 4. TEMPORAL (BI-TEMPORAL VISUALIZATION) */}
         <section>
           <div style={sectionTitleStyle}>BI-TEMPORAL BOUNDS</div>

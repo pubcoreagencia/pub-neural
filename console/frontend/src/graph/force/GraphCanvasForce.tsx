@@ -31,6 +31,9 @@ export function GraphCanvasForce({
   // Hover state
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
+  // View Source Mode: "git" (Source of Truth pubcore@main) or "backbone" (Institutional Cognitive Backbone)
+  const [sourceMode, setSourceMode] = useState<"git" | "backbone">("git");
+
   // Filters state
   const [filters, setFilters] = useState<GraphFilterCriteria>({
     searchQuery: "",
@@ -41,7 +44,36 @@ export function GraphCanvasForce({
     epistemicState: "ALL",
   });
 
-  // 1. Initial Load: Backbone or focused neighborhood
+  // 1a. Load Canonical Git Topology: pubcoreagencia/pubcore@main
+  const loadGitTopology = useCallback(async () => {
+    setLoading(true);
+    setLoadingStatus("Traversing Git Topology (pubcoreagencia/pubcore@main)...");
+    setError(null);
+    try {
+      const data: GraphResponseDTO = await NeuralAPI.getRepositoryGraph({
+        repository: "pubcoreagencia/pubcore",
+        branch: "main",
+        path: "",
+        depth: 1,
+        limit: 100,
+      });
+      const nodes: ForceNodeObject[] = data.nodes.map((n) => ({ ...n }));
+      const links: ForceLinkObject[] = data.edges.map((e) => ({
+        ...e,
+        source: e.source_id,
+        target: e.target_id,
+      }));
+      setRawNodes(nodes);
+      setRawLinks(links);
+    } catch (e: any) {
+      console.error("Failed to load Git topology", e);
+      setError(e.message || "Failed to load Git topology.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // 1b. Load Institutional Backbone
   const loadBackbone = useCallback(async () => {
     setLoading(true);
     setLoadingStatus("Traversing Institutional Backbone...");
@@ -65,8 +97,12 @@ export function GraphCanvasForce({
   }, []);
 
   useEffect(() => {
-    loadBackbone();
-  }, [loadBackbone]);
+    if (sourceMode === "git") {
+      loadGitTopology();
+    } else {
+      loadBackbone();
+    }
+  }, [sourceMode, loadGitTopology, loadBackbone]);
 
   // 2. Incremental Expansion on double click or manual trigger
   const expandNode = useCallback(
@@ -74,7 +110,29 @@ export function GraphCanvasForce({
       setLoading(true);
       setLoadingStatus(`Expanding neighborhood for ${nodeId}...`);
       try {
-        const data = await NeuralAPI.getNeighborhood(nodeId, 1, { limit: 50 });
+        let data: GraphResponseDTO;
+        if (nodeId.startsWith("dir:")) {
+          // Format: dir:repo@branch:path
+          const subPath = nodeId.split(":").slice(2).join(":");
+          data = await NeuralAPI.getRepositoryGraph({
+            repository: "pubcoreagencia/pubcore",
+            branch: "main",
+            path: subPath,
+            depth: 1,
+            limit: 50,
+          });
+        } else if (nodeId.startsWith("repo:")) {
+          data = await NeuralAPI.getRepositoryGraph({
+            repository: "pubcoreagencia/pubcore",
+            branch: "main",
+            path: "",
+            depth: 1,
+            limit: 50,
+          });
+        } else {
+          data = await NeuralAPI.getNeighborhood(nodeId, 1, { limit: 50 });
+        }
+
         setRawNodes((prevNodes) => {
           const existingIds = new Set(prevNodes.map((n) => n.id));
           const newNodes = data.nodes
@@ -294,6 +352,53 @@ export function GraphCanvasForce({
 
         {/* Action Buttons */}
         <div style={{ display: "flex", gap: 8, pointerEvents: "auto" }}>
+          {/* Source of Truth Mode Selector */}
+          <div
+            style={{
+              display: "flex",
+              backgroundColor: "rgba(30, 41, 59, 0.85)",
+              border: "1px solid #334155",
+              borderRadius: 6,
+              padding: 2,
+              gap: 2,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setSourceMode("git")}
+              style={{
+                padding: "4px 10px",
+                backgroundColor: sourceMode === "git" ? "#0369a1" : "transparent",
+                color: sourceMode === "git" ? "#ffffff" : "#94a3b8",
+                border: "none",
+                borderRadius: 4,
+                fontSize: "0.72rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Git Source 🌲
+            </button>
+            <button
+              type="button"
+              onClick={() => setSourceMode("backbone")}
+              style={{
+                padding: "4px 10px",
+                backgroundColor: sourceMode === "backbone" ? "#4f46e5" : "transparent",
+                color: sourceMode === "backbone" ? "#ffffff" : "#94a3b8",
+                border: "none",
+                borderRadius: 4,
+                fontSize: "0.72rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+              }}
+            >
+              Institutional 🏛️
+            </button>
+          </div>
+
           {selectedEntityId && (
             <button
               type="button"
@@ -317,7 +422,7 @@ export function GraphCanvasForce({
 
           <button
             type="button"
-            onClick={loadBackbone}
+            onClick={sourceMode === "git" ? loadGitTopology : loadBackbone}
             disabled={loading}
             style={{
               padding: "6px 12px",
@@ -330,7 +435,7 @@ export function GraphCanvasForce({
               cursor: loading ? "not-allowed" : "pointer",
             }}
           >
-            Reload Backbone
+            Refresh
           </button>
 
           <button

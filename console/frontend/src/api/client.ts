@@ -168,6 +168,23 @@ export const NeuralAPI = {
     return fetchApi<GraphResponseDTO>(`/graph/backbone${qs ? `?${qs}` : ""}`);
   },
 
+  async getRepositoryGraph(params?: {
+    repository?: string;
+    branch?: string;
+    path?: string;
+    depth?: number;
+    limit?: number;
+  }): Promise<GraphResponseDTO> {
+    const searchParams = new URLSearchParams();
+    if (params?.repository) searchParams.set("repository", params.repository);
+    if (params?.branch) searchParams.set("branch", params.branch);
+    if (params?.path) searchParams.set("path", params.path);
+    if (params?.depth !== undefined) searchParams.set("depth", String(params.depth));
+    if (params?.limit !== undefined) searchParams.set("limit", String(params.limit));
+    const qs = searchParams.toString();
+    return fetchApi<GraphResponseDTO>(`/graph/repository${qs ? `?${qs}` : ""}`);
+  },
+
   async getNeighborhood(
     entityId: string,
     depth: number = 2,
