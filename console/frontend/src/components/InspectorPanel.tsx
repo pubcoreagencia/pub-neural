@@ -2,45 +2,52 @@ import { useEffect, useState } from "react";
 import { NeuralAPI } from "../api/client";
 import type { EntityDetailDTO } from "../api/types";
 import { EventInspector } from "../inspector/EventInspector";
+import { EdgeInspector } from "../inspector/EdgeInspector";
 
 interface InspectorPanelProps {
   entityId: string | null;
   eventId?: string | null;
-  activeTab?: "entity" | "event";
-  onTabChange?: (tab: "entity" | "event") => void;
+  edgeId?: string | null;
+  activeTab?: "entity" | "event" | "edge";
+  onTabChange?: (tab: "entity" | "event" | "edge") => void;
   onNavigateEntity?: (id: string) => void;
   onSelectEvent?: (eventId: string) => void;
   onCloseEvent?: () => void;
+  onCloseEdge?: () => void;
 }
 
 export function InspectorPanel({
   entityId,
   eventId,
+  edgeId,
   activeTab,
   onTabChange,
   onNavigateEntity,
   onSelectEvent,
   onCloseEvent,
+  onCloseEdge,
 }: InspectorPanelProps) {
   const [entity, setEntity] = useState<EntityDetailDTO | null>(null);
   const [loading, setLoading] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
-  const [internalTab, setInternalTab] = useState<"entity" | "event">("entity");
+  const [internalTab, setInternalTab] = useState<"entity" | "event" | "edge">("entity");
 
   const currentTab = activeTab ?? internalTab;
 
-  const setTab = (tab: "entity" | "event") => {
+  const setTab = (tab: "entity" | "event" | "edge") => {
     if (onTabChange) onTabChange(tab);
     setInternalTab(tab);
   };
 
   useEffect(() => {
-    if (eventId && !entityId) {
+    if (edgeId) {
+      setTab("edge");
+    } else if (eventId && !entityId) {
       setTab("event");
     } else if (entityId && !eventId) {
       setTab("entity");
     }
-  }, [entityId, eventId]);
+  }, [entityId, eventId, edgeId]);
 
   useEffect(() => {
     if (!entityId) {
@@ -72,6 +79,45 @@ export function InspectorPanel({
     setCopiedId(true);
     setTimeout(() => setCopiedId(false), 2000);
   };
+
+  if (currentTab === "edge" && edgeId) {
+    return (
+      <div style={panelContainerStyle}>
+        <div style={tabBarStyle}>
+          {entityId && (
+            <button
+              type="button"
+              onClick={() => setTab("entity")}
+              style={{
+                ...tabBtnStyle,
+                color: "#94a3b8",
+                borderBottom: "2px solid transparent",
+              }}
+            >
+              ✦ Entity
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setTab("edge")}
+            style={{
+              ...tabBtnStyle,
+              color: "#38bdf8",
+              borderBottom: "2px solid #38bdf8",
+              backgroundColor: "#1e293b",
+            }}
+          >
+            ☍ Edge Detail
+          </button>
+        </div>
+        <EdgeInspector
+          edgeId={edgeId}
+          onNavigateEntity={onNavigateEntity}
+          onClose={onCloseEdge}
+        />
+      </div>
+    );
+  }
 
   if (currentTab === "event" && eventId) {
     return (
@@ -127,6 +173,17 @@ export function InspectorPanel({
   }
 
   if (!entity) {
+    if (edgeId) {
+      return (
+        <div style={panelContainerStyle}>
+          <EdgeInspector
+            edgeId={edgeId}
+            onNavigateEntity={onNavigateEntity}
+            onClose={onCloseEdge}
+          />
+        </div>
+      );
+    }
     if (eventId) {
       return (
         <div style={panelContainerStyle}>

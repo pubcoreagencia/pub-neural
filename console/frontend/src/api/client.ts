@@ -1,6 +1,7 @@
 import type {
   GraphResponseDTO,
   EntityDetailDTO,
+  EdgeDetailDTO,
   SearchResponseDTO,
   SystemStatusDTO,
   EventListResponseDTO,
@@ -154,15 +155,53 @@ export const NeuralAPI = {
     return fetchApi<SearchResponseDTO>(`/search?q=${encodeURIComponent(query)}`);
   },
 
+  async getGraphBackbone(params?: {
+    limit?: number;
+    projectId?: string;
+    trustZone?: string;
+  }): Promise<GraphResponseDTO> {
+    const searchParams = new URLSearchParams();
+    if (params?.limit !== undefined) searchParams.set("limit", String(params.limit));
+    if (params?.projectId) searchParams.set("project_id", params.projectId);
+    if (params?.trustZone) searchParams.set("trust_zone", params.trustZone);
+    const qs = searchParams.toString();
+    return fetchApi<GraphResponseDTO>(`/graph/backbone${qs ? `?${qs}` : ""}`);
+  },
+
   async getNeighborhood(
     entityId: string,
-    depth: number = 2
+    depth: number = 2,
+    options?: {
+      limit?: number;
+      entityTypes?: string[];
+      relationTypes?: string[];
+      epistemicState?: string;
+      trustZone?: string;
+      projectId?: string;
+    }
   ): Promise<GraphResponseDTO> {
-    return fetchApi<GraphResponseDTO>(`/entities/${entityId}/neighborhood?depth=${depth}`);
+    const searchParams = new URLSearchParams();
+    searchParams.set("depth", String(depth));
+    if (options?.limit !== undefined) searchParams.set("limit", String(options.limit));
+    if (options?.entityTypes && options.entityTypes.length > 0) {
+      searchParams.set("entity_types", options.entityTypes.join(","));
+    }
+    if (options?.relationTypes && options.relationTypes.length > 0) {
+      searchParams.set("relation_types", options.relationTypes.join(","));
+    }
+    if (options?.epistemicState) searchParams.set("epistemic_state", options.epistemicState);
+    if (options?.trustZone) searchParams.set("trust_zone", options.trustZone);
+    if (options?.projectId) searchParams.set("project_id", options.projectId);
+
+    return fetchApi<GraphResponseDTO>(`/entities/${encodeURIComponent(entityId)}/neighborhood?${searchParams.toString()}`);
   },
 
   async getEntityDetail(entityId: string): Promise<EntityDetailDTO> {
-    return fetchApi<EntityDetailDTO>(`/entities/${entityId}`);
+    return fetchApi<EntityDetailDTO>(`/entities/${encodeURIComponent(entityId)}`);
+  },
+
+  async getEdgeDetail(edgeId: string): Promise<EdgeDetailDTO> {
+    return fetchApi<EdgeDetailDTO>(`/edges/${encodeURIComponent(edgeId)}`);
   },
 
   async getEvents(params?: {

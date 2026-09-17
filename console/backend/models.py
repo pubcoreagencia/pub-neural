@@ -134,6 +134,39 @@ class EntityDetailDTO:
 
 
 @dataclass(frozen=True)
+class EdgeDetailDTO:
+    id: str
+    source_id: str
+    target_id: str
+    relation_type: str
+    weight: float
+    is_bidirectional: bool
+    trust_zone: str
+    is_active: bool
+    confidence: float
+    epistemic_classification: str
+    extractor: str
+    valid_from: str
+    valid_until: Optional[str]
+    recorded_from: str
+    recorded_until: Optional[str]
+    created_at: str
+    updated_at: str
+    originating_event_id: str
+    last_transition_event_id: Optional[str]
+    association_status: Optional[str] = None
+    classification_source: Optional[str] = None
+    classification_confidence: Optional[float] = None
+    classification_reason: Optional[str] = None
+    evidence: List[EvidenceLocatorDTO] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        d = asdict(self)
+        d["evidence"] = [e.to_dict() for e in self.evidence]
+        return d
+
+
+@dataclass(frozen=True)
 class SearchResultItemDTO:
     target_id: str
     target_type: str

@@ -218,5 +218,118 @@ class TestConsoleServices(unittest.TestCase):
             self.assertFalse(resp.abstention_decision.accepted)
             self.assertEqual(len(resp.results), 0)
 
+    def test_get_graph_backbone(self):
+        from console.backend.services.graph_service import get_graph_backbone
+
+        mock_cur = MagicMock()
+        mock_cur.fetchall.side_effect = [
+            # Node rows
+            [
+                {
+                    "id": "project:pub-ecom",
+                    "entity_type": "PROJECT",
+                    "title": "PUB Ecom",
+                    "slug": "pub-ecom",
+                    "summary": "Commerce system",
+                    "promotion_state": "VALIDATED",
+                    "conflict_state": "RESOLVED",
+                    "confidence_score": 1.0,
+                    "valid_from": datetime.now(timezone.utc),
+                    "valid_until": None,
+                    "trust_zone": "tz_internal_holding",
+                    "project_id": "pub-ecom",
+                    "evidence_count": 2,
+                },
+                {
+                    "id": "rule:pub-core:zero-mutation",
+                    "entity_type": "RULE",
+                    "title": "Zero Mutation",
+                    "slug": "zero-mutation",
+                    "summary": "Rule",
+                    "promotion_state": "VALIDATED",
+                    "conflict_state": "RESOLVED",
+                    "confidence_score": 1.0,
+                    "valid_from": datetime.now(timezone.utc),
+                    "valid_until": None,
+                    "trust_zone": "tz_internal_holding",
+                    "project_id": None,
+                    "evidence_count": 5,
+                },
+            ],
+            # Edge rows
+            [
+                {
+                    "edge_id": "00000000-0000-0000-0000-000000000099",
+                    "source_id": "project:pub-ecom",
+                    "target_id": "rule:pub-core:zero-mutation",
+                    "relation_type": "IMPLEMENTS",
+                    "weight": 1.0,
+                    "is_bidirectional": False,
+                    "trust_zone": "tz_internal_holding",
+                    "is_active": True,
+                }
+            ],
+        ]
+
+        backbone = get_graph_backbone(mock_cur, limit=50)
+        self.assertEqual(backbone.total_nodes, 2)
+        self.assertEqual(backbone.total_edges, 1)
+        self.assertEqual(backbone.nodes[0].id, "project:pub-ecom")
+        self.assertEqual(backbone.edges[0].relation_type, "IMPLEMENTS")
+
+    def test_get_edge_detail_found(self):
+        from console.backend.services.graph_service import get_edge_detail
+
+        mock_cur = MagicMock()
+        mock_cur.fetchone.return_value = {
+            "id": "edge-1",
+            "source_id": "node-1",
+            "target_id": "node-2",
+            "relation_type": "USES",
+            "weight": 0.95,
+            "is_bidirectional": False,
+            "trust_zone": "tz_internal_holding",
+            "is_active": True,
+            "valid_from": datetime.now(timezone.utc),
+            "valid_until": None,
+            "recorded_from": datetime.now(timezone.utc),
+            "recorded_until": None,
+            "originating_event_id": "00000000-0000-0000-0000-000000000001",
+            "last_transition_event_id": None,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+        mock_cur.fetchall.return_value = [
+            {
+                "id": "ev-1",
+                "source_id": "src-1",
+                "start_line": 15,
+                "end_line": 25,
+                "exact_quote": "import foo",
+                "confidence": 0.95,
+                "validation_state": "VALIDATED",
+                "extractor_version": "graphify-v8",
+                "repository": "pubcore/repo",
+                "commit_sha": "abc1234",
+                "file_path": "main.py",
+            }
+        ]
+
+        detail = get_edge_detail(mock_cur, "edge-1")
+        self.assertIsNotNone(detail)
+        self.assertEqual(detail.id, "edge-1")
+        self.assertEqual(detail.relation_type, "USES")
+        self.assertEqual(detail.extractor, "graphify-v8")
+        self.assertEqual(detail.epistemic_classification, "EXTRACTED")
+        self.assertEqual(len(detail.evidence), 1)
+
+    def test_get_edge_detail_not_found(self):
+        from console.backend.services.graph_service import get_edge_detail
+
+        mock_cur = MagicMock()
+        mock_cur.fetchone.return_value = None
+        detail = get_edge_detail(mock_cur, "non-existent")
+        self.assertIsNone(detail)
+
 if __name__ == "__main__":
     unittest.main()

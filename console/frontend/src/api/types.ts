@@ -78,6 +78,33 @@ export interface EntityDetailDTO {
   outgoing_relations_count: number;
 }
 
+export interface EdgeDetailDTO {
+  id: string;
+  source_id: string;
+  target_id: string;
+  relation_type: string;
+  weight: number;
+  is_bidirectional: boolean;
+  trust_zone: string;
+  is_active: boolean;
+  confidence: number;
+  epistemic_classification: string;
+  extractor: string;
+  valid_from: string;
+  valid_until: string | null;
+  recorded_from: string;
+  recorded_until: string | null;
+  created_at: string;
+  updated_at: string;
+  originating_event_id: string;
+  last_transition_event_id: string | null;
+  association_status?: "CONFIRMED" | "PROPOSED" | "UNCLASSIFIED" | string | null;
+  classification_source?: string | null;
+  classification_confidence?: number | null;
+  classification_reason?: string | null;
+  evidence: EvidenceLocatorDTO[];
+}
+
 export interface SearchResultItemDTO {
   target_id: string;
   target_type: string;

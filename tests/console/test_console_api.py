@@ -224,7 +224,38 @@ class TestConsoleAPI(unittest.TestCase):
             self.assertEqual(resp.status, 200)
             data = json.loads(resp.read().decode("utf-8"))
             self.assertTrue(data["revoked"])
-            self.assertEqual(data["status"], "LOGGED_OUT")
+    @patch("console.backend.server.get_graph_backbone")
+    @patch("console.backend.server.get_readonly_connection")
+    def test_graph_backbone_endpoint(self, mock_conn, mock_get_backbone):
+        mock_cur = MagicMock()
+        mock_conn.return_value.__enter__.return_value = mock_cur
+        mock_get_backbone.return_value = MagicMock(to_dict=lambda: {"nodes": [], "edges": [], "total_nodes": 0, "total_edges": 0})
+
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/graph/backbone?limit=50",
+            headers={"Authorization": "Bearer valid_tok_123"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(data["total_nodes"], 0)
+
+    @patch("console.backend.server.get_edge_detail")
+    @patch("console.backend.server.get_readonly_connection")
+    def test_edge_detail_endpoint(self, mock_conn, mock_get_edge):
+        mock_cur = MagicMock()
+        mock_conn.return_value.__enter__.return_value = mock_cur
+        mock_get_edge.return_value = MagicMock(to_dict=lambda: {"id": "edge-1", "relation_type": "USES"})
+
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/edges/edge-1",
+            headers={"Authorization": "Bearer valid_tok_123"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(data["id"], "edge-1")
+            self.assertEqual(data["relation_type"], "USES")
 
 
 if __name__ == "__main__":

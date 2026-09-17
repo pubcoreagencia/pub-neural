@@ -45,7 +45,12 @@ from console.backend.services.auth_service import (
     login_actor,
     logout_actor,
 )
-from console.backend.services.graph_service import get_entity_detail, get_neighborhood
+from console.backend.services.graph_service import (
+    get_edge_detail,
+    get_entity_detail,
+    get_graph_backbone,
+    get_neighborhood,
+)
 from console.backend.services.search_service import execute_console_search
 from console.backend.services.status_service import get_system_status
 from console.backend.services.timeline_service import get_event_detail, get_events_list
@@ -470,12 +475,47 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                     self._send_json(200, ev_dto.to_dict())
                 return
 
+            # 5b. Graph Backbone endpoint: /api/v1/graph/backbone
+            if path == "/api/v1/graph/backbone":
+                limit = int(params.get("limit", [100])[0])
+                project_id = params.get("project_id", [None])[0]
+                trust_zone = params.get("trust_zone", [None])[0]
+
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    graph_dto = get_graph_backbone(
+                        cur,
+                        trust_zone=trust_zone,
+                        limit=limit,
+                        project_id=project_id,
+                    )
+                    self._send_json(200, graph_dto.to_dict())
+                return
+
+            # 5c. Edge Detail endpoint: /api/v1/edges/{edge_id}
+            match_edge = re.match(r"^/api/v1/edges/([^/]+)$", path)
+            if match_edge:
+                edge_id = match_edge.group(1)
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    edge_dto = get_edge_detail(cur, edge_id)
+                    if not edge_dto:
+                        self._send_json(404, {"error": "NotFound", "detail": f"Edge '{edge_id}' not found or unauthorized under RLS."})
+                        return
+                    self._send_json(200, edge_dto.to_dict())
+                return
+
             # 6. Entity Neighborhood: /api/v1/entities/{entity_id}/neighborhood
             match_neigh = re.match(r"^/api/v1/entities/([^/]+)/neighborhood$", path)
             if match_neigh:
                 entity_id = match_neigh.group(1)
                 depth = int(params.get("depth", [1])[0])
                 limit = int(params.get("limit", [50])[0])
+                entity_types_param = params.get("entity_types", [None])[0]
+                entity_types = [t.strip() for t in entity_types_param.split(",")] if entity_types_param else None
+                relation_types_param = params.get("relation_types", [None])[0]
+                relation_types = [t.strip() for t in relation_types_param.split(",")] if relation_types_param else None
+                epistemic_state = params.get("epistemic_state", [None])[0]
+                trust_zone = params.get("trust_zone", [None])[0]
+                project_id = params.get("project_id", [None])[0]
 
                 with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
                     detail = get_entity_detail(cur, entity_id)
@@ -486,7 +526,17 @@ class ConsoleRequestHandler(BaseHTTPRequestHandler):
                         )
                         return
 
-                    graph_dto = get_neighborhood(cur, entity_id, depth=depth, limit=limit)
+                    graph_dto = get_neighborhood(
+                        cur,
+                        entity_id,
+                        depth=depth,
+                        limit=limit,
+                        entity_types=entity_types,
+                        relation_types=relation_types,
+                        epistemic_state=epistemic_state,
+                        trust_zone=trust_zone,
+                        project_id=project_id,
+                    )
                     self._send_json(200, graph_dto.to_dict())
                 return
 
