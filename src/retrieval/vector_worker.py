@@ -274,7 +274,7 @@ class VectorIndexingWorker:
                 cur.execute(
                     """
                     INSERT INTO pub_neural.neural_vectors (
-                        id, target_type, target_id, trust_zone, project_id, model_id,
+                        id, target_type, target_id, trust_zone, project_id, model_id, embedding_provenance_id,
                         embedding, content_hash, originating_event_id, created_at
                     ) VALUES (
                         %s::uuid, 'EVIDENCE', %s, %s, %s, %s, %s::uuid, %s::vector(1536), %s, %s::uuid, CURRENT_TIMESTAMP
