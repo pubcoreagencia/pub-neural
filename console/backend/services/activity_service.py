@@ -706,7 +706,7 @@ def get_activity_signals(
                 jsonb_build_object(
                     'ref', obs.ref,
                     'sha', obs.sha,
-                    'is_default_branch', obs.is_default_branch,
+                    'is_default_branch', (obs.details->>'is_default_branch')::boolean,
                     'details', obs.details
                 ) AS evidence_preview,
                 obs.event_id::text AS event_id
