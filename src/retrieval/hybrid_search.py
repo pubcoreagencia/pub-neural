@@ -128,8 +128,9 @@ class HybridSearchEngine:
         active_model_id = model_id or self.provider.model_id
         try:
             with conn.cursor() as cur:
+                provenance_id = self._resolve_compatible_provenance(cur, self.provider.provider_id, active_model_id, self.provider.model_version, self.provider.dimension, self.provider.corpus_version, self.provider.index_version)
                 query_vec = self.provider.generate_embedding(query)
-                return self._retrieve_dense(cur, query_vec, active_model_id, trust_zone, project_id)
+                return self._retrieve_dense(cur, query_vec, active_model_id, provenance_id, trust_zone, project_id)
         finally:
             conn.close()
 
