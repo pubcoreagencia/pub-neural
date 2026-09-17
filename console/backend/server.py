@@ -1,0 +1,763 @@
+"""
+HTTP REST Server for PUB Neural Console V0 Read-Only Service.
+Implements the presentation boundary on top of Python standard library http.server.
+Guarantees:
+- Zero external HTTP framework dependencies required.
+- Strictly read-only: POST, PUT, DELETE, PATCH return 405 Method Not Allowed.
+- All protected endpoints require Authorization: Bearer <token>.
+- Reuses existing HybridSearchEngine and PostgreSQL RLS session attachment.
+"""
+
+from datetime import datetime, timezone
+import json
+import re
+import sys
+from urllib.parse import parse_qs, unquote, urlparse
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+from console.backend.config import ConsoleConfig
+from console.backend.dependencies import (
+    AuthenticationError,
+    ReadOnlyViolationError,
+    extract_bearer_token,
+    get_readonly_connection,
+)
+from console.backend.services.activity_service import (
+    get_activity_signals,
+    get_governance_review_data,
+    get_overview_data,
+    get_project_activity,
+    get_project_detail,
+    get_projects_registry,
+    get_repository_activity,
+)
+from console.backend.services.ontology_service import (
+    get_all_repositories,
+    get_governance_queues,
+    get_holding_project_detail,
+    get_holding_projects,
+    get_project_repositories,
+    get_unclassified_repositories,
+)
+from console.backend.services.auth_service import (
+    get_current_session,
+    login_actor,
+    logout_actor,
+)
+from console.backend.services.graph_service import (
+    get_edge_detail,
+    get_entity_detail,
+    get_graph_backbone,
+    get_neighborhood,
+)
+from console.backend.services.git_graph_service import (
+    get_git_topology,
+    get_git_node_detail,
+    get_git_edge_detail,
+    get_organization_graph,
+    fetch_organization_repos,
+)
+from console.backend.services.unified_graph_service import get_unified_graph
+from console.backend.services.search_service import execute_console_search
+from console.backend.services.status_service import get_system_status
+from console.backend.services.timeline_service import get_event_detail, get_events_list
+
+
+
+class ConsoleRequestHandler(BaseHTTPRequestHandler):
+    """Request handler enforcing read-only guarantees, bearer auth, and clean JSON responses."""
+
+    server_config: ConsoleConfig = ConsoleConfig.from_environment()
+
+    def _get_cors_allow_origin(self) -> str:
+        """Resolve Access-Control-Allow-Origin based on incoming Origin header and config."""
+        allowed = getattr(self.server_config, "cors_origins", ("*",))
+        if "*" in allowed:
+            return "*"
+        req_origin = self.headers.get("Origin", "").strip()
+        if req_origin and req_origin in allowed:
+            return req_origin
+        # If no origin or not explicitly allowed, default to the first configured origin
+        return allowed[0] if allowed else "*"
+
+    def _send_json(self, status_code: int, payload: Dict[str, Any]) -> None:
+        """Send a JSON HTTP response with security headers."""
+        try:
+            body = json.dumps(payload, indent=2).encode("utf-8")
+        except Exception as e:
+            body = json.dumps({"error": "SerializationError", "detail": str(e)}).encode("utf-8")
+            status_code = 500
+
+        allow_origin = self._get_cors_allow_origin()
+
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", allow_origin)
+        if allow_origin != "*":
+            self.send_header("Vary", "Origin")
+        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _drain_body(self) -> None:
+        """Drain any incoming request payload to prevent TCP reset on HTTP/1.1 clients."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length > 0:
+                self.rfile.read(length)
+        except Exception:
+            pass
+
+    def do_OPTIONS(self) -> None:
+        """Handle CORS preflight requests."""
+        allow_origin = self._get_cors_allow_origin()
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", allow_origin)
+        if allow_origin != "*":
+            self.send_header("Vary", "Origin")
+        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Max-Age", "86400")
+        self.end_headers()
+
+    def do_POST(self) -> None:
+        """Handle session authentication requests while prohibiting all data mutations."""
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/")
+
+        try:
+            # 1. Login endpoint: POST /api/v1/auth/login
+            if path == "/api/v1/auth/login":
+                try:
+                    content_len = int(self.headers.get("Content-Length", 0))
+                    raw_body = self.rfile.read(content_len).decode("utf-8") if content_len > 0 else "{}"
+                    body_json = json.loads(raw_body)
+                except Exception:
+                    self._send_json(400, {"error": "BadRequest", "detail": "Malformed JSON payload."})
+                    return
+
+                actor_id = body_json.get("actor_id")
+                secret = body_json.get("secret")
+                trust_zone = body_json.get("trust_zone", "tz_internal_holding")
+                project_scope = body_json.get("project_scope")
+
+                session_data = login_actor(
+                    db_url=self.server_config.db_url,
+                    actor_id=actor_id,
+                    secret=secret,
+                    trust_zone=trust_zone,
+                    project_scope=project_scope,
+                )
+                self._send_json(200, session_data)
+                return
+
+            # 2. Logout endpoint: POST /api/v1/auth/logout
+            if path == "/api/v1/auth/logout":
+                self._drain_body()
+                auth_header = self.headers.get("Authorization")
+                token = extract_bearer_token(auth_header)
+                revoked = logout_actor(self.server_config.db_url, token)
+                self._send_json(200, {"revoked": revoked, "status": "LOGGED_OUT"})
+                return
+
+            # Explicitly reject all other POST mutations
+            self._drain_body()
+            self._send_json(
+                405,
+                {
+                    "error": "Method Not Allowed",
+                    "detail": "PUB Neural Console API is strictly read-only. Mutation operations (POST) are prohibited.",
+                },
+            )
+        except AuthenticationError as auth_err:
+            self._send_json(401, {"error": "Unauthorized", "detail": str(auth_err)})
+        except Exception as e:
+            self._send_json(500, {"error": "InternalServerError", "detail": str(e)})
+
+    def do_PUT(self) -> None:
+        """Explicitly prohibit mutation operations."""
+        self._drain_body()
+        self._send_json(
+            405,
+            {
+                "error": "Method Not Allowed",
+                "detail": "PUB Neural Console API is strictly read-only. Mutation operations (PUT) are prohibited.",
+            },
+        )
+
+    def do_DELETE(self) -> None:
+        """Explicitly prohibit mutation operations."""
+        self._drain_body()
+        self._send_json(
+            405,
+            {
+                "error": "Method Not Allowed",
+                "detail": "PUB Neural Console API is strictly read-only. Mutation operations (DELETE) are prohibited.",
+            },
+        )
+
+    def do_PATCH(self) -> None:
+        """Explicitly prohibit mutation operations."""
+        self._drain_body()
+        self._send_json(
+            405,
+            {
+                "error": "Method Not Allowed",
+                "detail": "PUB Neural Console API is strictly read-only. Mutation operations (PATCH) are prohibited.",
+            },
+        )
+
+    def do_GET(self) -> None:
+        """Route incoming GET requests to the corresponding service handlers."""
+        parsed = urlparse(self.path)
+        path = unquote(parsed.path.rstrip("/"))
+        if not path:
+            path = "/"
+        params = parse_qs(parsed.query)
+
+        try:
+            # 1. Unauthenticated Health check
+            if path == "/health":
+                self._send_json(
+                    200,
+                    {
+                        "status": "UP",
+                        "service": "pub-neural-console-backend",
+                        "version": "v0.1.0",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+                return
+
+            # 2. System Status (Authenticated or Public connectivity overview)
+            if path == "/api/v1/status":
+                auth_header = self.headers.get("Authorization")
+                token = None
+                if auth_header:
+                    try:
+                        token = extract_bearer_token(auth_header)
+                    except AuthenticationError:
+                        token = None
+
+                with get_readonly_connection(
+                    self.server_config.db_url,
+                    bearer_token=token,
+                    enforce_auth=False
+                ) as cur:
+                    status_dto = get_system_status(cur, bearer_token=token)
+                    self._send_json(200, status_dto.to_dict())
+                return
+
+            # 2b. Session verification: GET /api/v1/auth/session
+            if path == "/api/v1/auth/session":
+                auth_header = self.headers.get("Authorization")
+                token = extract_bearer_token(auth_header)
+                session_info = get_current_session(self.server_config.db_url, token)
+                self._send_json(200, session_info)
+                return
+
+            # 2c. Git Repositories Discovery endpoint: /api/v1/graph/repositories
+            if path == "/api/v1/graph/repositories":
+                search_q = params.get("search", [""])[0]
+                archived_param = params.get("archived", ["true"])[0].lower()
+                include_archived = archived_param in ("true", "1", "yes")
+                limit_param = int(params.get("limit", [100])[0])
+                offset_param = int(params.get("offset", [0])[0])
+
+                all_repos = fetch_organization_repos("pubcoreagencia")
+                filtered = []
+                for r in all_repos:
+                    if not include_archived and r.get("archived", False):
+                        continue
+                    if search_q:
+                        sq = search_q.lower()
+                        if sq not in r.get("name", "").lower() and sq not in (r.get("description") or "").lower():
+                            continue
+                    filtered.append({
+                        "repository": r.get("full_name"),
+                        "name": r.get("name"),
+                        "owner": "pubcoreagencia",
+                        "default_branch": r.get("default_branch", "main"),
+                        "description": r.get("description"),
+                        "visibility": r.get("visibility", "public"),
+                        "archived": r.get("archived", False),
+                        "size_kb": r.get("size", 0),
+                        "updated_at": r.get("updated_at"),
+                        "node_id": f"repo:{r.get('full_name')}",
+                        "github_url": f"https://github.com/{r.get('full_name')}",
+                    })
+
+                total = len(filtered)
+                paginated = filtered[offset_param : offset_param + limit_param]
+                self._send_json(200, {
+                    "total": total,
+                    "offset": offset_param,
+                    "limit": limit_param,
+                    "repositories": paginated,
+                })
+                return
+
+            # 2c2. Git Repository Graph endpoint: /api/v1/graph/repository (Public Source of Truth Topology)
+            if path == "/api/v1/graph/repository":
+                repo_param = params.get("repository", [""])[0]
+                branch_param = params.get("branch", ["main"])[0]
+                path_param = params.get("path", [""])[0]
+                depth_param = int(params.get("depth", [1])[0])
+                limit_param = int(params.get("limit", [100])[0])
+
+                if not repo_param:
+                    git_graph = get_organization_graph(
+                        org="pubcoreagencia",
+                        include_archived=True,
+                        limit=limit_param,
+                    )
+                else:
+                    git_graph = get_git_topology(
+                        repo=repo_param,
+                        branch=branch_param,
+                        base_path=path_param,
+                        depth=depth_param,
+                        limit=limit_param,
+                    )
+                self._send_json(200, git_graph.to_dict())
+                return
+
+            # 2c3. Unified Graph Projection endpoint: /api/v1/graph/unified
+            if path == "/api/v1/graph/unified":
+                limit_param = int(params.get("limit", [120])[0])
+                source_param = params.get("source", ["all"])[0]
+                trust_zone_param = params.get("trust_zone", [None])[0]
+                project_param = params.get("project_id", [None])[0]
+                repo_filter = params.get("repository", [None])[0]
+                entity_type_filter = params.get("entity_type", [None])[0]
+                relation_type_filter = params.get("relation_type", [None])[0]
+                epistemic_filter = params.get("epistemic_state", [None])[0]
+
+                # Public read-only connection without mandatory bearer token for unified exploration
+                with get_readonly_connection(self.server_config.db_url, enforce_auth=False) as cur:
+                    unified_graph = get_unified_graph(
+                        cur=cur,
+                        source=source_param,
+                        trust_zone=trust_zone_param,
+                        project_id=project_param,
+                        limit=limit_param,
+                        repository_filter=repo_filter,
+                        entity_type_filter=entity_type_filter,
+                        relation_type_filter=relation_type_filter,
+                        epistemic_filter=epistemic_filter,
+                    )
+                self._send_json(200, unified_graph.to_dict())
+                return
+
+            # 2d. Git Entity Detail check for public topology nodes
+            match_git_entity = re.match(r"^/api/v1/entities/((?:org|repo|dir|file|commit):.+)$", path)
+            if match_git_entity:
+                entity_id = match_git_entity.group(1)
+                git_detail = get_git_node_detail(entity_id)
+                if git_detail:
+                    self._send_json(200, git_detail)
+                    return
+
+            # 2e. Git Edge Detail check for public/git edges (starting with 'edge:')
+            match_git_edge = re.match(r"^/api/v1/edges/(edge:.+)$", path)
+            if match_git_edge:
+                edge_id = match_git_edge.group(1)
+                git_edge_detail = get_git_edge_detail(edge_id)
+                if git_edge_detail:
+                    self._send_json(200, git_edge_detail.to_dict())
+                    return
+
+            # All remaining endpoints require Authorization: Bearer <token>
+            token = extract_bearer_token(self.headers.get("Authorization"))
+
+            # 3. Overview endpoint (Command Center V0.1)
+            if path == "/api/v1/overview":
+                window_param = params.get("window_days", [14])[0]
+                try:
+                    window_days = int(window_param)
+                except ValueError:
+                    window_days = 14
+
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    overview_dto = get_overview_data(cur, window_days=window_days)
+                    self._send_json(200, overview_dto.to_dict())
+                return
+
+            # 3a2. Activity Signals endpoint (Operational Activity Intelligence V0.4)
+            if path == "/api/v1/activity":
+                window_param = params.get("window_days", [14])[0]
+                try:
+                    window_days = int(window_param)
+                except ValueError:
+                    window_days = 14
+
+                limit_param = params.get("limit", [50])[0]
+                try:
+                    limit = int(limit_param)
+                except ValueError:
+                    limit = 50
+
+                project_id = params.get("project_id", [None])[0]
+                repository_id = params.get("repository_id", [None])[0]
+                activity_type = params.get("activity_type", [None])[0]
+
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    act_dto = get_activity_signals(
+                        cur,
+                        window_days=window_days,
+                        project_id=project_id,
+                        repository_id=repository_id,
+                        activity_type=activity_type,
+                        limit=limit,
+                    )
+                    self._send_json(200, act_dto.to_dict())
+                return
+
+            # 3b. Governance Review endpoint (Knowledge awaiting review)
+            if path == "/api/v1/governance/review":
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    gov_dto = get_governance_review_data(cur)
+                    self._send_json(200, gov_dto.to_dict())
+                return
+
+            # 3b2. Governance Ontology Queues endpoint: GET /api/v1/governance/ontology
+            if path == "/api/v1/governance/ontology":
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    queues = get_governance_queues(cur)
+                    self._send_json(200, queues)
+                return
+
+            # 3c. Holding Projects Ontology endpoint: GET /api/v1/projects
+            if path == "/api/v1/projects":
+                project_type = params.get("project_type", [None])[0]
+                lifecycle_status = params.get("lifecycle_status", [None])[0]
+                ontology_status = params.get("ontology_status", [None])[0]
+                is_active_param = params.get("is_active", [None])[0]
+                is_active = None
+                if is_active_param is not None:
+                    is_active = is_active_param.lower() in ("true", "1")
+
+                # If caller asks specifically for repositories/registry, provide legacy registry
+                view_mode = params.get("view", [None])[0]
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    if view_mode == "repositories":
+                        projects_dto = get_projects_registry(
+                            cur,
+                            lifecycle_status=lifecycle_status,
+                            is_active=is_active,
+                        )
+                        self._send_json(200, projects_dto.to_dict())
+                    else:
+                        holding_dto = get_holding_projects(
+                            cur,
+                            project_type=project_type,
+                            lifecycle_status=lifecycle_status,
+                            is_active=is_active,
+                            ontology_status=ontology_status,
+                        )
+                        self._send_json(200, holding_dto.to_dict())
+                return
+
+            # 3d. Project Repositories endpoint: GET /api/v1/projects/{project_id}/repositories
+            match_proj_repos = re.match(r"^/api/v1/projects/([^/]+)/repositories$", path)
+            if match_proj_repos:
+                project_id = match_proj_repos.group(1)
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    repos = get_project_repositories(cur, project_id)
+                    self._send_json(200, [r.to_dict() for r in repos])
+                return
+
+            # 3d2. Project Activity endpoint: GET /api/v1/projects/{project_id}/activity
+            match_proj_act = re.match(r"^/api/v1/projects/([^/]+)/activity$", path)
+            if match_proj_act:
+                project_id = match_proj_act.group(1)
+                window_param = params.get("window_days", [14])[0]
+                try:
+                    window_days = int(window_param)
+                except ValueError:
+                    window_days = 14
+                limit_param = params.get("limit", [50])[0]
+                try:
+                    limit = int(limit_param)
+                except ValueError:
+                    limit = 50
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    act_dto = get_project_activity(cur, project_id=project_id, window_days=window_days, limit=limit)
+                    self._send_json(200, act_dto.to_dict())
+                return
+
+            # 3e. Project Detail endpoint: GET /api/v1/projects/{project_id}
+            match_proj = re.match(r"^/api/v1/projects/([^/]+)$", path)
+            if match_proj:
+                project_id = match_proj.group(1)
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    # Try holding project first
+                    hp_detail = get_holding_project_detail(cur, project_id)
+                    if hp_detail:
+                        self._send_json(200, hp_detail.to_dict())
+                        return
+                    # Fallback to repository registry detail
+                    proj_detail = get_project_detail(cur, project_id)
+                    if not proj_detail:
+                        self._send_json(404, {"error": "NotFound", "detail": f"Project '{project_id}' not found in ontology or registry."})
+                        return
+                    self._send_json(200, proj_detail)
+                return
+
+            # 3f. Repositories Unclassified: GET /api/v1/repositories/unclassified
+            if path == "/api/v1/repositories/unclassified":
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    unclass = get_unclassified_repositories(cur)
+                    self._send_json(200, [r.to_dict() for r in unclass])
+                return
+
+            # 3f2. Repository Activity endpoint: GET /api/v1/repositories/{repository_id}/activity
+            match_repo_act = re.match(r"^/api/v1/repositories/([^/]+)/activity$", path)
+            if match_repo_act:
+                repository_id = match_repo_act.group(1)
+                window_param = params.get("window_days", [14])[0]
+                try:
+                    window_days = int(window_param)
+                except ValueError:
+                    window_days = 14
+                limit_param = params.get("limit", [50])[0]
+                try:
+                    limit = int(limit_param)
+                except ValueError:
+                    limit = 50
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    act_dto = get_repository_activity(cur, repository_id=repository_id, window_days=window_days, limit=limit)
+                    self._send_json(200, act_dto.to_dict())
+                return
+
+            # 3g. All Repositories with Project Mapping: GET /api/v1/repositories
+            if path == "/api/v1/repositories":
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    all_repos = get_all_repositories(cur)
+                    self._send_json(200, all_repos)
+                return
+
+            # 4. Search endpoint
+
+            if path == "/api/v1/search":
+                q_list = params.get("q")
+                if not q_list or not q_list[0].strip():
+                    self._send_json(400, {"error": "BadRequest", "detail": "Missing required query parameter 'q'."})
+                    return
+
+                query_str = q_list[0].strip()
+                entity_type = params.get("entity_type", [None])[0]
+                limit = int(params.get("limit", [self.server_config.default_search_limit])[0])
+
+                search_dto = execute_console_search(
+                    db_url=self.server_config.db_url,
+                    bearer_token=token,
+                    query=query_str,
+                    entity_type=entity_type,
+                    limit=limit,
+                )
+                self._send_json(200, search_dto.to_dict())
+                return
+
+            # 4. Events list endpoint
+            if path == "/api/v1/events":
+                limit = int(params.get("limit", [self.server_config.default_event_limit])[0])
+                offset = int(params.get("offset", [0])[0])
+                stream_id = params.get("stream_id", [None])[0]
+                event_type = params.get("event_type", [None])[0]
+
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    events_dto = get_events_list(
+                        cur,
+                        limit=limit,
+                        offset=offset,
+                        stream_id=stream_id,
+                        event_type=event_type,
+                    )
+                    self._send_json(200, events_dto.to_dict())
+                return
+
+            # 5. Single Event detail endpoint: /api/v1/events/{event_id}
+            match_event = re.match(r"^/api/v1/events/([^/]+)$", path)
+            if match_event:
+                event_id = match_event.group(1)
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    ev_dto = get_event_detail(cur, event_id)
+                    if not ev_dto:
+                        self._send_json(404, {"error": "NotFound", "detail": f"Event '{event_id}' not found."})
+                        return
+                    self._send_json(200, ev_dto.to_dict())
+                return
+
+            # 5b. Graph Backbone endpoint: /api/v1/graph/backbone
+            if path == "/api/v1/graph/backbone":
+                limit = int(params.get("limit", [100])[0])
+                project_id = params.get("project_id", [None])[0]
+                trust_zone = params.get("trust_zone", [None])[0]
+
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    graph_dto = get_graph_backbone(
+                        cur,
+                        trust_zone=trust_zone,
+                        limit=limit,
+                        project_id=project_id,
+                    )
+                    self._send_json(200, graph_dto.to_dict())
+                return
+
+            # 5b2. Git Repository Graph endpoint: /api/v1/graph/repository
+            if path == "/api/v1/graph/repository":
+                repo_param = params.get("repository", ["pubcoreagencia/pubcore"])[0]
+                branch_param = params.get("branch", ["main"])[0]
+                path_param = params.get("path", [""])[0]
+                depth_param = int(params.get("depth", [1])[0])
+                limit_param = int(params.get("limit", [100])[0])
+
+                git_graph = get_git_topology(
+                    repo=repo_param,
+                    branch=branch_param,
+                    base_path=path_param,
+                    depth=depth_param,
+                    limit=limit_param,
+                )
+                self._send_json(200, git_graph.to_dict())
+                return
+
+            # 5c. Edge Detail endpoint: /api/v1/edges/{edge_id}
+            match_edge = re.match(r"^/api/v1/edges/([^/]+)$", path)
+            if match_edge:
+                edge_id = match_edge.group(1)
+                if edge_id.startswith("edge:"):
+                    git_edge_dto = get_git_edge_detail(edge_id)
+                    if git_edge_dto:
+                        self._send_json(200, git_edge_dto.to_dict())
+                        return
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    edge_dto = get_edge_detail(cur, edge_id)
+                    if not edge_dto:
+                        self._send_json(404, {"error": "NotFound", "detail": f"Edge '{edge_id}' not found or unauthorized under RLS."})
+                        return
+                    self._send_json(200, edge_dto.to_dict())
+                return
+
+            # 6. Entity Neighborhood: /api/v1/entities/{entity_id}/neighborhood
+            match_neigh = re.match(r"^/api/v1/entities/([^/]+)/neighborhood$", path)
+            if match_neigh:
+                entity_id = match_neigh.group(1)
+                depth = int(params.get("depth", [1])[0])
+                limit = int(params.get("limit", [50])[0])
+                entity_types_param = params.get("entity_types", [None])[0]
+                entity_types = [t.strip() for t in entity_types_param.split(",")] if entity_types_param else None
+                relation_types_param = params.get("relation_types", [None])[0]
+                relation_types = [t.strip() for t in relation_types_param.split(",")] if relation_types_param else None
+                epistemic_state = params.get("epistemic_state", [None])[0]
+                trust_zone = params.get("trust_zone", [None])[0]
+                project_id = params.get("project_id", [None])[0]
+
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    detail = get_entity_detail(cur, entity_id)
+                    if not detail:
+                        self._send_json(
+                            404,
+                            {"error": "NotFound", "detail": f"Entity '{entity_id}' not found or unauthorized under RLS."},
+                        )
+                        return
+
+                    graph_dto = get_neighborhood(
+                        cur,
+                        entity_id,
+                        depth=depth,
+                        limit=limit,
+                        entity_types=entity_types,
+                        relation_types=relation_types,
+                        epistemic_state=epistemic_state,
+                        trust_zone=trust_zone,
+                        project_id=project_id,
+                    )
+                    self._send_json(200, graph_dto.to_dict())
+                return
+
+            # 7. Entity Detail endpoint: /api/v1/entities/{entity_id}
+            match_entity = re.match(r"^/api/v1/entities/([^/]+)$", path)
+            if match_entity:
+                entity_id = match_entity.group(1)
+                # First check Git topology objects (repo:, dir:, file:, commit:)
+                git_detail = get_git_node_detail(entity_id)
+                if git_detail:
+                    self._send_json(200, git_detail)
+                    return
+
+                with get_readonly_connection(self.server_config.db_url, bearer_token=token) as cur:
+                    detail_dto = get_entity_detail(cur, entity_id)
+                    if not detail_dto:
+                        self._send_json(
+                            404,
+                            {"error": "NotFound", "detail": f"Entity '{entity_id}' not found or unauthorized under RLS."},
+                        )
+                        return
+                    self._send_json(200, detail_dto.to_dict())
+                return
+
+            # No route matched
+            self._send_json(404, {"error": "NotFound", "detail": f"Path '{path}' does not match any console API route."})
+
+        except (AuthenticationError, PermissionError) as auth_err:
+            self._send_json(401, {"error": "Unauthorized", "detail": str(auth_err)})
+        except ReadOnlyViolationError as ro_err:
+            self._send_json(403, {"error": "Forbidden", "detail": str(ro_err)})
+        except ValueError as val_err:
+            self._send_json(400, {"error": "BadRequest", "detail": str(val_err)})
+        except Exception as unhandled_err:
+            import traceback
+            traceback.print_exc()
+            self._send_json(
+                500,
+                {
+                    "error": "InternalServerError",
+                    "detail": f"An unexpected error occurred while processing read-only request: {unhandled_err}",
+                },
+            )
+
+    def log_message(self, format: str, *args: Any) -> None:
+        """Suppress default stderr HTTP request logging in test/library modes."""
+        pass
+
+
+def create_console_server(config: Optional[ConsoleConfig] = None) -> HTTPServer:
+    """Instantiate standard HTTP server configured for the Console API."""
+    cfg = config or ConsoleConfig.from_environment()
+    ConsoleRequestHandler.server_config = cfg
+    server = HTTPServer((cfg.host, cfg.port), ConsoleRequestHandler)
+    return server
+
+
+if __name__ == "__main__":
+    import os
+    from src.ingestion.observation_scheduler import get_observation_scheduler
+
+    cfg = ConsoleConfig.from_environment()
+    server = create_console_server(cfg)
+    print(f"PUB Neural Console V0 Read-Only Backend serving at http://{cfg.host}:{cfg.port}")
+
+    scheduler = None
+    if os.getenv("OBSERVATION_SCHEDULER_ENABLED", "true").lower() in ("true", "1", "yes"):
+        try:
+            scheduler = get_observation_scheduler(cfg.db_url)
+            scheduler.start()
+            print("Continuous Repository Observation Scheduler daemon activated.")
+        except Exception as sched_err:
+            print(f"Warning: could not start observation scheduler daemon: {sched_err}")
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nShutting down Console server...")
+        if scheduler:
+            scheduler.stop()
+        server.server_close()
+

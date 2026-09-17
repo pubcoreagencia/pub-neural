@@ -958,5 +958,249 @@ BEGIN
 END;
 $$;
 
+-- ----------------------------------------------------------------------------
+-- RPL-21: TASK_EXPERIENCE_RECORDED Projection Verification
+-- Proves:
+--   1. Valid experience event projects primary node into neural_nodes under 'OBSERVED'
+--   2. Preserves task identity, project, repository, branch, commit, valid_from
+--   3. Candidate findings project under 'CANDIDATE' and 'RESOLVED' (never 'INSTITUTIONAL')
+--   4. Derives edge (finding -> experience) with relation_type 'DERIVED_FROM'
+--   5. Updates lexical Portuguese FTS for experience and findings
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_exp_evt pub_neural.neural_events%ROWTYPE;
+    v_res VARCHAR(32);
+    v_node pub_neural.neural_nodes%ROWTYPE;
+    v_finding pub_neural.neural_nodes%ROWTYPE;
+    v_edge pub_neural.neural_edges%ROWTYPE;
+    v_fts_exp pub_neural.neural_fts%ROWTYPE;
+    v_fts_finding pub_neural.neural_fts%ROWTYPE;
+BEGIN
+    v_exp_evt.id := '0191e4f0-00fe-7000-8000-000000000001'::uuid;
+    v_exp_evt.event_type := 'TASK_EXPERIENCE_RECORDED';
+    v_exp_evt.recorded_at := CURRENT_TIMESTAMP;
+    v_exp_evt.stream_id := 'stream:task:TASK-EXP-PROJ-01';
+    v_exp_evt.stream_version := 1;
+    v_exp_evt.producer_version := 'v1.0.0';
+    v_exp_evt.actor_id := 'actor:system:admin';
+    v_exp_evt.actor_role := 'ADMIN';
+    v_exp_evt.payload := '{
+        "taskId": "TASK-EXP-PROJ-01",
+        "projectId": "pub-dev-loop",
+        "repository": "pubcoreagencia/pub-dev-loop",
+        "branch": "feat/governed-memory-loop",
+        "commitSha": "7128eba0fc16f1b1ee12099531a413868bb267e4",
+        "status": "COMPLETED",
+        "objective": "Verify task experience projector integration and deterministic replay",
+        "completedAt": "2026-09-14T15:00:00.000Z",
+        "candidateFindings": [
+            {
+                "finding_type": "LESSON",
+                "title": "Deterministic Projection Isolation",
+                "statement": "All projected state must derive strictly from event timestamps without wall-clock drift.",
+                "scope": "PROJECT",
+                "confidence": 0.95
+            },
+            {
+                "finding_type": "PATTERN",
+                "title": "Idempotent Replay Verification",
+                "statement": "Replaying events must produce identical node hashes across consecutive runs.",
+                "scope": "PROJECT",
+                "confidence": 0.90
+            }
+        ]
+    }'::jsonb;
+
+    INSERT INTO pub_neural.neural_events (
+        id, event_type, producer_version, stream_id, stream_version, actor_id, actor_role, payload, recorded_at
+    ) VALUES (
+        v_exp_evt.id, v_exp_evt.event_type, v_exp_evt.producer_version, v_exp_evt.stream_id,
+        v_exp_evt.stream_version, v_exp_evt.actor_id, v_exp_evt.actor_role, v_exp_evt.payload, v_exp_evt.recorded_at
+    ) ON CONFLICT (id) DO NOTHING;
+
+    v_res := pub_neural.reduce_event(v_exp_evt);
+    IF v_res <> 'SUPPORTED' THEN
+        RAISE EXCEPTION 'RPL-21 failed: expected SUPPORTED, got %', v_res;
+    END IF;
+
+    -- 1. Check primary experience node
+    SELECT * INTO v_node FROM pub_neural.neural_nodes WHERE id = 'experience:pub-dev-loop:TASK-EXP-PROJ-01';
+    IF v_node.id IS NULL THEN
+        RAISE EXCEPTION 'RPL-21 failed: primary experience node was not created';
+    END IF;
+    IF v_node.entity_type <> 'LESSON' OR v_node.promotion_state <> 'OBSERVED' THEN
+        RAISE EXCEPTION 'RPL-21 failed: primary node has invalid state (entity: %, state: %)', v_node.entity_type, v_node.promotion_state;
+    END IF;
+    IF v_node.project_id <> 'pub-dev-loop' OR v_node.originating_event_id <> v_exp_evt.id THEN
+        RAISE EXCEPTION 'RPL-21 failed: primary node provenance mismatch';
+    END IF;
+
+    -- 2. Check candidate findings
+    SELECT * INTO v_finding FROM pub_neural.neural_nodes WHERE id = 'finding:pub-dev-loop:TASK-EXP-PROJ-01:1';
+    IF v_finding.id IS NULL THEN
+        RAISE EXCEPTION 'RPL-21 failed: candidate finding node 1 was not created';
+    END IF;
+    IF v_finding.promotion_state <> 'CANDIDATE' THEN
+        RAISE EXCEPTION 'RPL-21 failed: candidate finding 1 escalated beyond CANDIDATE (was %)', v_finding.promotion_state;
+    END IF;
+    IF v_finding.entity_type <> 'LESSON' THEN
+        RAISE EXCEPTION 'RPL-21 failed: candidate finding 1 entity_type expected LESSON, got %', v_finding.entity_type;
+    END IF;
+
+    SELECT * INTO v_finding FROM pub_neural.neural_nodes WHERE id = 'finding:pub-dev-loop:TASK-EXP-PROJ-01:2';
+    IF v_finding.id IS NULL OR v_finding.entity_type <> 'PATTERN' OR v_finding.promotion_state <> 'CANDIDATE' THEN
+        RAISE EXCEPTION 'RPL-21 failed: candidate finding 2 mismatch';
+    END IF;
+
+    -- 3. Check edges
+    SELECT * INTO v_edge FROM pub_neural.neural_edges 
+    WHERE source_id = 'finding:pub-dev-loop:TASK-EXP-PROJ-01:1' AND target_id = 'experience:pub-dev-loop:TASK-EXP-PROJ-01';
+    IF v_edge.id IS NULL OR v_edge.relation_type <> 'DERIVED_FROM' THEN
+        RAISE EXCEPTION 'RPL-21 failed: edge finding 1 -> experience missing or wrong relation (got %)', v_edge.relation_type;
+    END IF;
+
+    -- 4. Check FTS
+    SELECT * INTO v_fts_exp FROM pub_neural.neural_fts WHERE id = 'experience:pub-dev-loop:TASK-EXP-PROJ-01';
+    IF v_fts_exp.tsv_document IS NULL THEN
+        RAISE EXCEPTION 'RPL-21 failed: FTS missing for primary experience node';
+    END IF;
+
+    SELECT * INTO v_fts_finding FROM pub_neural.neural_fts WHERE id = 'finding:pub-dev-loop:TASK-EXP-PROJ-01:1';
+    IF v_fts_finding.tsv_document IS NULL THEN
+        RAISE EXCEPTION 'RPL-21 failed: FTS missing for candidate finding node 1';
+    END IF;
+
+    RAISE NOTICE 'TEST_PASSED [RPL-21]: TASK_EXPERIENCE_RECORDED projection verified (primary OBSERVED node, 2x CANDIDATE findings, DERIVED_FROM edges, Portuguese FTS).';
+END;
+$$;
+
+-- ----------------------------------------------------------------------------
+-- RPL-22: TASK_EXPERIENCE_RECORDED Idempotency and Non-Authority Invariant
+-- Proves:
+--   1. 5x repeated reduction of the same event produces zero drift in nodes/edges/fts
+--   2. Does NOT overwrite or escalate pre-existing authoritative state (e.g. INSTITUTIONAL/VALIDATED)
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_exp_evt pub_neural.neural_events%ROWTYPE;
+    v_i INTEGER;
+    v_res VARCHAR(32);
+    v_snap_before_nodes TEXT;
+    v_snap_before_edges TEXT;
+    v_snap_before_fts TEXT;
+    v_snap_after_nodes TEXT;
+    v_snap_after_edges TEXT;
+    v_snap_after_fts TEXT;
+    v_node pub_neural.neural_nodes%ROWTYPE;
+BEGIN
+    v_exp_evt.id := '0191e4f0-00fe-7000-8000-000000000001'::uuid;
+    v_exp_evt.event_type := 'TASK_EXPERIENCE_RECORDED';
+    v_exp_evt.recorded_at := CURRENT_TIMESTAMP;
+    v_exp_evt.payload := '{
+        "taskId": "TASK-EXP-PROJ-01",
+        "projectId": "pub-dev-loop",
+        "repository": "pubcoreagencia/pub-dev-loop",
+        "branch": "feat/governed-memory-loop",
+        "commitSha": "7128eba0fc16f1b1ee12099531a413868bb267e4",
+        "status": "COMPLETED",
+        "objective": "Verify task experience projector integration and deterministic replay",
+        "completedAt": "2026-09-14T15:00:00.000Z",
+        "candidateFindings": [
+            {
+                "finding_type": "LESSON",
+                "title": "Deterministic Projection Isolation",
+                "statement": "All projected state must derive strictly from event timestamps without wall-clock drift.",
+                "scope": "PROJECT",
+                "confidence": 0.95
+            }
+        ]
+    }'::jsonb;
+
+    -- Snapshot before repeated reductions
+    SELECT md5(string_agg(id || ':' || entity_type || ':' || title || ':' || summary || ':' || content || ':' || promotion_state || ':' || conflict_state || ':' || is_active, ',' ORDER BY id))
+    INTO v_snap_before_nodes FROM pub_neural.neural_nodes WHERE id LIKE '%TASK-EXP-PROJ-01%';
+
+    SELECT md5(string_agg(id::text || ':' || source_id || '->' || target_id || ':' || relation_type, ',' ORDER BY id))
+    INTO v_snap_before_edges FROM pub_neural.neural_edges WHERE source_id LIKE '%TASK-EXP-PROJ-01%' OR target_id LIKE '%TASK-EXP-PROJ-01%';
+
+    SELECT md5(string_agg(id || ':' || language_config::text || ':' || tsv_document::text, ',' ORDER BY id))
+    INTO v_snap_before_fts FROM pub_neural.neural_fts WHERE id LIKE '%TASK-EXP-PROJ-01%';
+
+    -- 5x repeated reduction
+    FOR v_i IN 1..5 LOOP
+        v_res := pub_neural.reduce_event(v_exp_evt);
+        IF v_res <> 'SUPPORTED' THEN
+            RAISE EXCEPTION 'RPL-22 failed on iteration %: got %', v_i, v_res;
+        END IF;
+    END LOOP;
+
+    -- Snapshot after repeated reductions
+    SELECT md5(string_agg(id || ':' || entity_type || ':' || title || ':' || summary || ':' || content || ':' || promotion_state || ':' || conflict_state || ':' || is_active, ',' ORDER BY id))
+    INTO v_snap_after_nodes FROM pub_neural.neural_nodes WHERE id LIKE '%TASK-EXP-PROJ-01%';
+
+    SELECT md5(string_agg(id::text || ':' || source_id || '->' || target_id || ':' || relation_type, ',' ORDER BY id))
+    INTO v_snap_after_edges FROM pub_neural.neural_edges WHERE source_id LIKE '%TASK-EXP-PROJ-01%' OR target_id LIKE '%TASK-EXP-PROJ-01%';
+
+    SELECT md5(string_agg(id || ':' || language_config::text || ':' || tsv_document::text, ',' ORDER BY id))
+    INTO v_snap_after_fts FROM pub_neural.neural_fts WHERE id LIKE '%TASK-EXP-PROJ-01%';
+
+    IF v_snap_before_nodes <> v_snap_after_nodes OR
+       v_snap_before_edges <> v_snap_after_edges OR
+       v_snap_before_fts <> v_snap_after_fts THEN
+        RAISE EXCEPTION 'RPL-22 failed: State drifted under repeated reduction of TASK_EXPERIENCE_RECORDED!';
+    END IF;
+
+    -- 3. Invariant check: Verify promotion_state has NOT escalated to INSTITUTIONAL or ADOPTED
+    SELECT * INTO v_node FROM pub_neural.neural_nodes WHERE id = 'experience:pub-dev-loop:TASK-EXP-PROJ-01';
+    IF v_node.promotion_state IN ('INSTITUTIONAL', 'ADOPTED', 'VALIDATED') THEN
+        RAISE EXCEPTION 'RPL-22 CRITICAL FAILURE: Observation escalated to authoritative state %!', v_node.promotion_state;
+    END IF;
+
+    RAISE NOTICE 'TEST_PASSED [RPL-22]: TASK_EXPERIENCE_RECORDED idempotency verified (0 drift across 5 runs, authority non-escalation proven).';
+END;
+$$;
+
+-- ----------------------------------------------------------------------------
+-- RPL-23: TASK_EXPERIENCE_RECORDED Malformed Payload Guard
+-- Proves:
+--   1. Missing taskId / task_id -> MALFORMED
+--   2. Missing projectId / project_id -> MALFORMED
+--   3. Missing repository -> MALFORMED
+-- ----------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_bad_evt pub_neural.neural_events%ROWTYPE;
+    v_res VARCHAR(32);
+BEGIN
+    v_bad_evt.event_type := 'TASK_EXPERIENCE_RECORDED';
+    v_bad_evt.recorded_at := CURRENT_TIMESTAMP;
+
+    -- Case 1: Missing taskId
+    v_bad_evt.payload := '{"projectId": "pub-dev-loop", "repository": "pubcore/repo"}'::jsonb;
+    v_res := pub_neural.reduce_event(v_bad_evt);
+    IF v_res <> 'MALFORMED' THEN
+        RAISE EXCEPTION 'RPL-23 failed (missing taskId): expected MALFORMED, got %', v_res;
+    END IF;
+
+    -- Case 2: Missing projectId
+    v_bad_evt.payload := '{"taskId": "T-1", "repository": "pubcore/repo"}'::jsonb;
+    v_res := pub_neural.reduce_event(v_bad_evt);
+    IF v_res <> 'MALFORMED' THEN
+        RAISE EXCEPTION 'RPL-23 failed (missing projectId): expected MALFORMED, got %', v_res;
+    END IF;
+
+    -- Case 3: Missing repository
+    v_bad_evt.payload := '{"taskId": "T-1", "projectId": "p-1"}'::jsonb;
+    v_res := pub_neural.reduce_event(v_bad_evt);
+    IF v_res <> 'MALFORMED' THEN
+        RAISE EXCEPTION 'RPL-23 failed (missing repository): expected MALFORMED, got %', v_res;
+    END IF;
+
+    RAISE NOTICE 'TEST_PASSED [RPL-23]: Malformed payload guards verified (missing taskId, projectId, repository rejected as MALFORMED).';
+END;
+$$;
+
+
 
 

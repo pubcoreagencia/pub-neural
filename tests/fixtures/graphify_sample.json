@@ -1,0 +1,60 @@
+{
+  "directed": true,
+  "nodes": [
+    {
+      "id": "src/auth/service.py::AuthService",
+      "label": "AuthService",
+      "file_type": "code",
+      "source_file": "src/auth/service.py",
+      "source_location": "L15-L60"
+    },
+    {
+      "id": "src/auth/service.py::login",
+      "label": "login",
+      "file_type": "code",
+      "source_file": "src/auth/service.py",
+      "source_location": "L30-L45"
+    },
+    {
+      "id": "src/db/session.py::get_db_session",
+      "label": "get_db_session",
+      "file_type": "code",
+      "source_file": "src/db/session.py",
+      "source_location": "L10-L20"
+    },
+    {
+      "id": "docs/architecture/AUTH.md",
+      "label": "Authentication Architecture",
+      "file_type": "document",
+      "source_file": "docs/architecture/AUTH.md",
+      "source_location": "L1-L100"
+    }
+  ],
+  "links": [
+    {
+      "source": "src/auth/service.py::login",
+      "target": "src/db/session.py::get_db_session",
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "src/auth/service.py"
+    },
+    {
+      "source": "src/auth/service.py::AuthService",
+      "target": "src/db/session.py::get_db_session",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "confidence_score": 0.65,
+      "source_file": "src/auth/service.py"
+    },
+    {
+      "source": "docs/architecture/AUTH.md",
+      "target": "src/auth/service.py::AuthService",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 0.95,
+      "source_file": "docs/architecture/AUTH.md"
+    }
+  ],
+  "built_at_commit": "fixture-commit-v8-123456"
+}

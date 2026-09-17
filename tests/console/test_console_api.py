@@ -1,0 +1,262 @@
+"""
+End-to-end HTTP integration tests for Console V0 Backend Server.
+Spins up the actual HTTP server on an ephemeral loopback port and executes real HTTP requests.
+Verifies:
+- /health endpoint (unauthenticated).
+- 405 Method Not Allowed on POST / PUT / DELETE.
+- 401 Unauthorized on missing/malformed bearer token.
+- Routing to /api/v1/status, /api/v1/search, /api/v1/entities, /api/v1/events.
+"""
+
+import json
+import threading
+import unittest
+import urllib.request
+import urllib.error
+from http.server import HTTPServer
+from unittest.mock import MagicMock, patch
+
+from console.backend.config import ConsoleConfig
+from console.backend.server import ConsoleRequestHandler, create_console_server
+
+
+class TestConsoleAPI(unittest.TestCase):
+    """End-to-end HTTP tests against loopback HTTPServer."""
+
+    @classmethod
+    def setUpClass(cls):
+        # Configure test server on random free port (port 0)
+        cls.config = ConsoleConfig(
+            db_url="postgresql://test:test@localhost:5432/test",
+            host="127.0.0.1",
+            port=0,
+        )
+        ConsoleRequestHandler.server_config = cls.config
+        cls.server = HTTPServer(("127.0.0.1", 0), ConsoleRequestHandler)
+        cls.port = cls.server.server_port
+        cls.base_url = f"http://127.0.0.1:{cls.port}"
+
+        cls.server_thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.server_thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def test_health_endpoint(self):
+        req = urllib.request.Request(f"{self.base_url}/health")
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(data["status"], "UP")
+            self.assertEqual(data["service"], "pub-neural-console-backend")
+
+    def test_post_rejected_with_405(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/entities",
+            data=b'{"title": "illegal mutation"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req)
+        self.assertEqual(ctx.exception.code, 405)
+        err_data = json.loads(ctx.exception.read().decode("utf-8"))
+        self.assertEqual(err_data["error"], "Method Not Allowed")
+
+    def test_put_rejected_with_405(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/entities/ent-1",
+            data=b'{"title": "mutation"}',
+            headers={"Content-Type": "application/json"},
+            method="PUT",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req)
+        self.assertEqual(ctx.exception.code, 405)
+
+    def test_delete_rejected_with_405(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/entities/ent-1",
+            method="DELETE",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req)
+        self.assertEqual(ctx.exception.code, 405)
+
+    def test_protected_endpoint_missing_auth(self):
+        req = urllib.request.Request(f"{self.base_url}/api/v1/entities/some-id")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req)
+        self.assertEqual(ctx.exception.code, 401)
+        err_data = json.loads(ctx.exception.read().decode("utf-8"))
+        self.assertEqual(err_data["error"], "Unauthorized")
+
+    def test_cors_preflight_options(self):
+        req = urllib.request.Request(f"{self.base_url}/api/v1/entities/ent-1", method="OPTIONS")
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 204)
+            headers = dict(resp.headers)
+            self.assertEqual(headers.get("Access-Control-Allow-Origin"), "*")
+            self.assertIn("GET", headers.get("Access-Control-Allow-Methods", ""))
+
+    def test_cors_explicit_origin(self):
+        # Temporarily configure explicit CORS origin on server_config
+        original_cors = ConsoleRequestHandler.server_config.cors_origins
+        try:
+            ConsoleRequestHandler.server_config = ConsoleConfig(
+                db_url=self.config.db_url,
+                host=self.config.host,
+                port=self.config.port,
+                cors_origins=("https://pub-neural.pages.dev", "https://preview.pub-neural.pages.dev"),
+            )
+
+            # Matching origin
+            req = urllib.request.Request(
+                f"{self.base_url}/api/v1/entities/ent-1",
+                headers={"Origin": "https://pub-neural.pages.dev"},
+                method="OPTIONS",
+            )
+            with urllib.request.urlopen(req) as resp:
+                self.assertEqual(resp.headers.get("Access-Control-Allow-Origin"), "https://pub-neural.pages.dev")
+                self.assertEqual(resp.headers.get("Vary"), "Origin")
+
+            # Non-matching origin defaults to first configured
+            req_other = urllib.request.Request(
+                f"{self.base_url}/api/v1/entities/ent-1",
+                headers={"Origin": "https://malicious.example.com"},
+                method="OPTIONS",
+            )
+            with urllib.request.urlopen(req_other) as resp:
+                self.assertEqual(resp.headers.get("Access-Control-Allow-Origin"), "https://pub-neural.pages.dev")
+        finally:
+            ConsoleRequestHandler.server_config = ConsoleConfig(
+                db_url=self.config.db_url,
+                host=self.config.host,
+                port=self.config.port,
+                cors_origins=original_cors,
+            )
+
+
+    def test_port_and_host_env_vars(self):
+        import os
+        old_port = os.environ.get("PORT")
+        old_host = os.environ.get("CONSOLE_HOST")
+        try:
+            os.environ["PORT"] = "9090"
+            if "CONSOLE_HOST" in os.environ:
+                del os.environ["CONSOLE_HOST"]
+            cfg = ConsoleConfig.from_environment()
+            self.assertEqual(cfg.port, 9090)
+            self.assertEqual(cfg.host, "0.0.0.0")
+
+            os.environ["CONSOLE_HOST"] = "10.0.0.1"
+            cfg2 = ConsoleConfig.from_environment()
+            self.assertEqual(cfg2.port, 9090)
+            self.assertEqual(cfg2.host, "10.0.0.1")
+        finally:
+            if old_port is not None:
+                os.environ["PORT"] = old_port
+            else:
+                os.environ.pop("PORT", None)
+            if old_host is not None:
+                os.environ["CONSOLE_HOST"] = old_host
+            else:
+                os.environ.pop("CONSOLE_HOST", None)
+
+
+    @patch("console.backend.server.login_actor")
+    def test_auth_login_endpoint(self, mock_login):
+        mock_login.return_value = {
+            "token": "tok_123456",
+            "actor_id": "actor:auditor:console-operator",
+            "actor_role": "AUDITOR",
+            "trust_zone": "tz_internal_holding",
+            "project_scope": None,
+            "expires_at": "2026-09-17T00:00:00Z",
+        }
+        payload = json.dumps({
+            "actor_id": "actor:auditor:console-operator",
+            "secret": "secret_123",
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/auth/login",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(data["token"], "tok_123456")
+            self.assertEqual(data["actor_role"], "AUDITOR")
+
+    @patch("console.backend.server.get_current_session")
+    def test_auth_session_endpoint(self, mock_get_session):
+        mock_get_session.return_value = {
+            "authenticated": True,
+            "actor_id": "actor:auditor:console-operator",
+            "actor_role": "AUDITOR",
+            "trust_zone": "tz_internal_holding",
+            "project_scope": None,
+            "expires_at": "2026-09-17T00:00:00Z",
+        }
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/auth/session",
+            headers={"Authorization": "Bearer valid_tok_123"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertTrue(data["authenticated"])
+            self.assertEqual(data["actor_id"], "actor:auditor:console-operator")
+
+    @patch("console.backend.server.logout_actor")
+    def test_auth_logout_endpoint(self, mock_logout):
+        mock_logout.return_value = True
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/auth/logout",
+            headers={"Authorization": "Bearer valid_tok_123"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertTrue(data["revoked"])
+    @patch("console.backend.server.get_graph_backbone")
+    @patch("console.backend.server.get_readonly_connection")
+    def test_graph_backbone_endpoint(self, mock_conn, mock_get_backbone):
+        mock_cur = MagicMock()
+        mock_conn.return_value.__enter__.return_value = mock_cur
+        mock_get_backbone.return_value = MagicMock(to_dict=lambda: {"nodes": [], "edges": [], "total_nodes": 0, "total_edges": 0})
+
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/graph/backbone?limit=50",
+            headers={"Authorization": "Bearer valid_tok_123"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(data["total_nodes"], 0)
+
+    @patch("console.backend.server.get_edge_detail")
+    @patch("console.backend.server.get_readonly_connection")
+    def test_edge_detail_endpoint(self, mock_conn, mock_get_edge):
+        mock_cur = MagicMock()
+        mock_conn.return_value.__enter__.return_value = mock_cur
+        mock_get_edge.return_value = MagicMock(to_dict=lambda: {"id": "edge-1", "relation_type": "USES"})
+
+        req = urllib.request.Request(
+            f"{self.base_url}/api/v1/edges/edge-1",
+            headers={"Authorization": "Bearer valid_tok_123"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            self.assertEqual(resp.status, 200)
+            data = json.loads(resp.read().decode("utf-8"))
+            self.assertEqual(data["id"], "edge-1")
+            self.assertEqual(data["relation_type"], "USES")
+
+
+if __name__ == "__main__":
+    unittest.main()

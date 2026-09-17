@@ -1,0 +1,2 @@
+# PUB Neural Console API dependencies for Railway deployment
+psycopg2-binary>=2.9.9
