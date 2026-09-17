@@ -4,6 +4,17 @@ import { ENTITY_COLORS, DEFAULT_ENTITY_THEME, type ForceNodeObject, type ForceLi
  * Calculates node radius based on connections (degree) and grounded evidence.
  */
 export function getNodeRadius(node: ForceNodeObject): number {
+  const entityType = node.entity_type?.toUpperCase();
+  // ORGANIZATION is the holding root apex
+  if (entityType === "ORGANIZATION" || entityType === "HOLDING") {
+    return 24;
+  }
+  // PROJECT is the primary semantic architectural layer between ORG and REPOSITORIES
+  if (entityType === "PROJECT") {
+    const degree = node.degree || 1;
+    return Math.min(Math.max(14 + Math.sqrt(degree) * 1.5, 15), 24);
+  }
+
   const degree = node.degree || 1;
   const evidenceBonus = Math.min((node.evidence_count || 0) * 0.5, 4);
   const base = 5 + Math.sqrt(degree) * 2.2 + evidenceBonus;
@@ -11,10 +22,12 @@ export function getNodeRadius(node: ForceNodeObject): number {
 }
 
 /**
- * Custom Canvas renderer for nodes supporting 3 Level-of-Detail (LOD) modes:
- * - LOD 0 (zoom < 1.2): Colored node dot with glowing halo on selection.
- * - LOD 1 (1.2 <= zoom < 2.5): Colored node + Entity Type badge.
- * - LOD 2 (zoom >= 2.5): Colored node + Title label + promotion status.
+ * Custom Canvas renderer for nodes supporting adaptive Level-of-Detail (LOD):
+ * - ORGANIZATION / PROJECT: Always legible with title/badge even at zoom >= 0.35.
+ * - Other entities:
+ *   - LOD 0 (zoom < 0.9): Colored node dot with glowing halo on selection/hover.
+ *   - LOD 1 (0.9 <= zoom < 1.8): Colored node + Entity Type badge.
+ *   - LOD 2 (zoom >= 1.8): Colored node + Title label + promotion status.
  */
 export function renderCanvasNode(
   node: ForceNodeObject,
@@ -24,23 +37,29 @@ export function renderCanvasNode(
   const x = node.x ?? 0;
   const y = node.y ?? 0;
   const r = getNodeRadius(node);
-  const theme = ENTITY_COLORS[node.entity_type?.toUpperCase()] || DEFAULT_ENTITY_THEME;
+  const entityType = node.entity_type?.toUpperCase();
+  const theme = ENTITY_COLORS[entityType] || DEFAULT_ENTITY_THEME;
 
   const isSelected = !!node.isSelected;
   const isHovered = !!node.isHovered;
   const isNeighbor = !!node.isNeighbor;
   const isDimmed = !!node.isDimmed;
+  const isProjectOrOrg = entityType === "ORGANIZATION" || entityType === "PROJECT" || entityType === "HOLDING";
 
   ctx.save();
 
   // Opacity
   ctx.globalAlpha = isDimmed ? 0.2 : 1.0;
 
-  // Outer glow / halo on selected, hovered or center nodes
-  if (isSelected || isHovered || node.isCenter) {
+  // Outer glow / halo on selected, hovered, center or high-level project/org nodes
+  if (isSelected || isHovered || node.isCenter || isProjectOrOrg) {
     ctx.beginPath();
-    ctx.arc(x, y, r + (isSelected ? 5 : 3), 0, 2 * Math.PI, false);
-    ctx.fillStyle = isSelected ? "rgba(56, 189, 248, 0.4)" : "rgba(167, 139, 250, 0.3)";
+    ctx.arc(x, y, r + (isSelected ? 6 : isProjectOrOrg ? 3 : 2), 0, 2 * Math.PI, false);
+    ctx.fillStyle = isSelected
+      ? "rgba(56, 189, 248, 0.45)"
+      : isProjectOrOrg
+      ? "rgba(59, 130, 246, 0.18)"
+      : "rgba(167, 139, 250, 0.3)";
     ctx.fill();
   }
 
@@ -51,7 +70,7 @@ export function renderCanvasNode(
   ctx.fill();
 
   // Border ring
-  ctx.lineWidth = isSelected ? 2.5 : isNeighbor ? 2 : 1.5;
+  ctx.lineWidth = isSelected ? 2.8 : isProjectOrOrg ? 2.2 : isNeighbor ? 2 : 1.5;
   ctx.strokeStyle = isSelected ? "#38bdf8" : isNeighbor ? "#38bdf8" : theme.border;
   ctx.stroke();
 
@@ -61,29 +80,35 @@ export function renderCanvasNode(
   ctx.fillStyle = theme.border;
   ctx.fill();
 
-  // Level of Detail (LOD) Typography Rendering
+  // Adaptive Typography Rendering
   if (!isDimmed) {
-    if (globalScale >= 1.2 || isHovered || isSelected) {
+    // Structural nodes (ORGANIZATION & PROJECT) are visible early (globalScale >= 0.35)
+    // or if hovered/selected so users immediately perceive the Project layer.
+    if (isProjectOrOrg || globalScale >= 0.9 || isHovered || isSelected) {
+      const showTitleEarly = isProjectOrOrg || globalScale >= 1.5 || isHovered || isSelected;
+
+      // Type badge / label
       ctx.font = `600 ${Math.max(10 / globalScale, 3.5)}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
-
-      // LOD 1: Type label
       ctx.fillStyle = theme.text;
       const typeLabel = node.entity_type.toUpperCase();
       ctx.fillText(typeLabel, x, y + r + 2);
 
-      // LOD 2: Detailed Title & Promotion State
-      if (globalScale >= 2.0 || isHovered || isSelected) {
+      // Detailed Title & Promotion State
+      if (showTitleEarly) {
         ctx.font = `500 ${Math.max(8.5 / globalScale, 3)}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
-        ctx.fillStyle = "#cbd5e1";
-        const titleLabel = node.title.length > 24 ? `${node.title.slice(0, 22)}…` : node.title;
-        ctx.fillText(titleLabel, x, y + r + (14 / globalScale) + 2);
+        ctx.fillStyle = isProjectOrOrg ? "#93c5fd" : "#cbd5e1";
+        const titleLabel = node.title.length > 26 ? `${node.title.slice(0, 24)}…` : node.title;
+        ctx.fillText(titleLabel, x, y + r + (13 / globalScale) + 2);
 
         if (node.promotion_state) {
           ctx.font = `bold ${Math.max(7 / globalScale, 2.5)}px monospace`;
-          ctx.fillStyle = node.promotion_state === "VALIDATED" || node.promotion_state === "INSTITUTIONAL" ? "#34d399" : "#fbbf24";
-          ctx.fillText(`[${node.promotion_state}]`, x, y + r + (25 / globalScale) + 2);
+          ctx.fillStyle =
+            node.promotion_state === "VALIDATED" || node.promotion_state === "INSTITUTIONAL"
+              ? "#34d399"
+              : "#fbbf24";
+          ctx.fillText(`[${node.promotion_state}]`, x, y + r + (23 / globalScale) + 2);
         }
       }
     }

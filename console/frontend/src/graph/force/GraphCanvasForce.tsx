@@ -283,11 +283,27 @@ export function GraphCanvasForce({
       })
       .d3AlphaDecay(0.02)
       .d3VelocityDecay(0.3)
-      .warmupTicks(30);
+      .warmupTicks(40)
+      .cooldownTicks(60)
+      .onEngineStop(() => {
+        // Auto-fit after initial layout calculation
+        graph.zoomToFit(400, 40);
+      });
 
-    // Tune physics force properties
-    graph.d3Force("charge")?.strength(-180);
-    graph.d3Force("link")?.distance(60);
+    // Tune physics force properties for hierarchical project clusters:
+    // Keep repositories closer to their parent projects (35-45px), and projects around ORG (70px)
+    graph.d3Force("charge")?.strength(-220);
+    graph.d3Force("link")?.distance((link: any) => {
+      const sType = typeof link.source === "object" ? link.source.entity_type : null;
+      const tType = typeof link.target === "object" ? link.target.entity_type : null;
+      if (sType === "PROJECT" || tType === "PROJECT") {
+        return 45;
+      }
+      if (sType === "ORGANIZATION" || tType === "ORGANIZATION") {
+        return 80;
+      }
+      return 60;
+    });
 
     graphInstanceRef.current = graph;
 
@@ -316,6 +332,15 @@ export function GraphCanvasForce({
         nodes: filteredData.nodes,
         links: filteredData.links,
       });
+
+      // Automatically fit view when nodes are populated
+      if (filteredData.nodes.length > 0) {
+        setTimeout(() => {
+          if (graphInstanceRef.current) {
+            graphInstanceRef.current.zoomToFit(400, 40);
+          }
+        }, 300);
+      }
     }
   }, [filteredData]);
 
