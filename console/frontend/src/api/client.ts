@@ -30,11 +30,11 @@ export function getApiBaseUrl(): string {
     return trimmed.endsWith("/api/v1") ? trimmed : `${trimmed}/api/v1`;
   }
   // In development mode (vite dev), default to local backend server.
-  // In production builds without explicit VITE_API_BASE_URL, default to relative '/api/v1'.
   if (import.meta.env.DEV) {
     return "http://127.0.0.1:8080/api/v1";
   }
-  return "/api/v1";
+  // In production builds, default to deployed Railway backend API
+  return "https://api-production-79f3.up.railway.app/api/v1";
 }
 
 export function getBearerToken(): string | undefined {

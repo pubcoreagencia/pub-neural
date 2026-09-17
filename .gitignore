@@ -9,3 +9,4 @@ temp_*
 *.log
 .env
 .env.*
+.wrangler/

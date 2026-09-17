@@ -17,10 +17,10 @@ describe("NeuralAPI Client Configuration", () => {
     expect(getApiBaseUrl()).toBe("http://127.0.0.1:8080/api/v1");
   });
 
-  it("defaults to safe relative /api/v1 in production mode when VITE_API_BASE_URL is undefined", () => {
+  it("defaults to Railway backend https://api-production-79f3.up.railway.app/api/v1 in production mode when VITE_API_BASE_URL is undefined", () => {
     vi.stubEnv("VITE_API_BASE_URL", "");
     vi.stubEnv("DEV", false);
-    expect(getApiBaseUrl()).toBe("/api/v1");
+    expect(getApiBaseUrl()).toBe("https://api-production-79f3.up.railway.app/api/v1");
   });
 
   it("resolves dynamic VITE_API_BASE_URL when defined without trailing slash", () => {

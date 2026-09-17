@@ -159,14 +159,21 @@ export function OverviewView({
   if (error && !data) {
     const isAuthError = error.includes("401");
     return (
-      <div style={{ padding: "32px", color: "#f87171", fontFamily: "monospace" }}>
-        Erro ao carregar Visão Geral: {error}
-        <div style={{ marginTop: "16px", display: "flex", gap: "10px" }}>
+      <div style={{ padding: "32px", fontFamily: "monospace", maxWidth: "800px" }}>
+        <div style={{ color: "#f87171", fontSize: "16px", fontWeight: 600, marginBottom: "8px" }}>
+          Erro ao carregar Visão Geral: {error}
+        </div>
+        <div style={{ color: "#94a3b8", fontSize: "13px", marginBottom: "20px", lineHeight: "1.5" }}>
+          {isAuthError
+            ? "Esta instância do PUB Neural exige uma sessão autenticada para leitura de projetos e governança."
+            : "Verifique a conectividade de rede com o endpoint da API."}
+        </div>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
           {isAuthError && onUnauthorized && (
             <button
               onClick={onUnauthorized}
               style={{
-                padding: "8px 16px",
+                padding: "8px 18px",
                 background: "#0284c7",
                 border: "none",
                 color: "#ffffff",
