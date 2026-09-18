@@ -8,7 +8,7 @@
 set -euo pipefail
 
 CONTAINER_NAME="pub_neural_vector_test"
-PG_PORT="54388"
+PG_PORT=""
 POSTGRES_IMAGE="pgvector/pgvector:pg16"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -27,7 +27,7 @@ run_test_pass() {
 
     docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
 
-    echo "=== [2/6] Starting Isolated PostgreSQL 16 Container (Pass #${pass_num}) ==="
+    # Let Docker allocate an ephemeral host port to avoid collisions on shared runners.\n    PG_PORT="$(python3 - <<'PY'\nimport socket\ns=socket.socket()\ns.bind(("127.0.0.1", 0))\nprint(s.getsockname()[1])\ns.close()\nPY\n)"\n\n    echo "=== [2/6] Starting Isolated PostgreSQL 16 Container (Pass #${pass_num}) ==="
     docker run -d \
         --name "${CONTAINER_NAME}" \
         -e POSTGRES_PASSWORD=postgres \
