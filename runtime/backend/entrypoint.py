@@ -227,7 +227,7 @@ def run_runtime_server():
     search_engine = HybridSearchEngine(db_url=cfg.db_url, embedding_provider=embed_provider)
     retrieval_adapter = HybridSearchAdapter(search_engine)
     result_mapper = NeuralResultMapper()
-    query_service = NeuralQueryService(retrieval_engine=retrieval_adapter, result_mapper=result_mapper)
+    query_service = NeuralQueryService(retrieval_engine=retrieval_adapter, result_mapper=result_mapper, project_validator=exp_sink.is_canonical_project)
 
     # 3. Create HTTP Server
     server = create_runtime_server(
