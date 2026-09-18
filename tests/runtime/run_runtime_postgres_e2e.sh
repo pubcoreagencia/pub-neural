@@ -33,6 +33,6 @@ EOSQL
 
 docker exec -i "${CONTAINER_NAME}" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < "${WORKSPACE_DIR}/src/projector_engine.sql"
 
-export PUB_NEURAL_E2E_DB_URL="postgresql://pub_neural_app:app_secret_pw@127.0.0.1:${PG_PORT}/postgres"
+export PUB_NEURAL_E2E_DB_URL="postgresql://postgres:postgres@127.0.0.1:${PG_PORT}/postgres"
 export PYTHONPATH="${WORKSPACE_DIR}"
 python3 "${WORKSPACE_DIR}/tests/runtime/test_runtime_postgres_e2e.py"
