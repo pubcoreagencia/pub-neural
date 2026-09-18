@@ -167,7 +167,7 @@ class TestRuntimeAPI(unittest.TestCase):
             enforce_auth=True,
         )
         cls.retrieval_engine = MockRetrievalEngine()
-        cls.query_service = NeuralQueryService(retrieval_engine=cls.retrieval_engine)
+        cls.query_service = NeuralQueryService(retrieval_engine=cls.retrieval_engine, project_validator=lambda project_id: project_id == "pub-ecom")
         cls.experience_sink = InMemoryExperienceSink()
         cls.experience_service = NeuralExperienceService(sink=cls.experience_sink)
 
@@ -373,6 +373,14 @@ class TestRuntimeAPI(unittest.TestCase):
         self.assertEqual(code, 200)
         self.assertEqual(data["status"], "STALE")
         self.assertGreater(len(data["results"]), 0)
+
+    def test_query_unknown_project_is_rejected_before_retrieval(self):
+        payload = self._make_valid_query_payload(projectId="proj:does-not-exist")
+        code, data = self._http_post("/api/v1/runtime/query", payload, token=self.test_token)
+        self.assertEqual(code, 400)
+        self.assertEqual(data["status"], "INVALID_REQUEST")
+        self.assertIn("Unknown or inactive canonical project", data["reason"])
+        self.assertEqual(self.retrieval_engine.mode, "success")
 
     def test_query_invalid_request(self):
         # Missing required objective and invalid knowledge class
