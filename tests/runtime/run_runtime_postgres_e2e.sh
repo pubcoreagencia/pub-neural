@@ -17,6 +17,10 @@ for i in {1..45}; do
   docker exec "${CONTAINER_NAME}" pg_isready -U postgres >/dev/null 2>&1 && break
   sleep 1
 done
+for i in {1..30}; do
+  docker exec "${CONTAINER_NAME}" psql -U postgres -d postgres -c "SELECT 1" >/dev/null 2>&1 && break
+  sleep 1
+done
 
 VALID_CEO_HASH="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 docker exec -i "${CONTAINER_NAME}" psql -U postgres -d postgres -v ON_ERROR_STOP=1 <<'EOSQL'
