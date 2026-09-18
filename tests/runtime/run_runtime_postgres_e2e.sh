@@ -29,6 +29,7 @@ SET pub_neural.bootstrap_ceo_credential_hash = '0123456789abcdef0123456789abcdef
 \i /workspace/migrations/0002_projector_engine_v0.sql
 \i /workspace/migrations/0006_project_registry_v0.sql
 \i /workspace/migrations/0007_project_ontology_v0.sql
+\i /workspace/migrations/0011_runtime_atomic_idempotency_fk.sql
 ALTER ROLE pub_neural_app WITH LOGIN PASSWORD 'app_secret_pw';
 INSERT INTO pub_neural.holding_projects (id, slug, display_name, project_type, lifecycle_status, is_active, is_archived)
 VALUES ('proj:runtime-e2e', 'runtime-e2e', 'Runtime E2E', 'PRODUCT', 'ATIVO', TRUE, FALSE)
