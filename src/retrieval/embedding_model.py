@@ -24,6 +24,26 @@ class EmbeddingModelProvider(abc.ABC):
         """Fixed vector dimension (Schema V0 contract = 1536)."""
         pass
 
+    @property
+    def provider_id(self) -> str:
+        return self.__class__.__name__
+
+    @property
+    def model_version(self) -> Optional[str]:
+        return None
+
+    @property
+    def corpus_version(self) -> str:
+        return os.getenv("EMBEDDING_CORPUS_VERSION", "pub-neural-corpus-v0")
+
+    @property
+    def index_version(self) -> str:
+        return os.getenv("EMBEDDING_INDEX_VERSION", "neural-vectors-v0")
+
+    @property
+    def normalization_config(self) -> Dict[str, object]:
+        return {"l2_normalized": True}
+
     @abc.abstractmethod
     def generate_embedding(self, text: str) -> List[float]:
         """Generate a unit-normalized float embedding vector."""

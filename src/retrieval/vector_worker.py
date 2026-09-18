@@ -5,6 +5,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor, register_uuid
 
 from .embedding_model import EmbeddingModelProvider
+import json
 
 
 # Register UUID adapter for psycopg2
@@ -55,6 +56,16 @@ class VectorIndexingWorker:
         if self._conn and not self._conn.closed:
             self._conn.close()
 
+
+    def _ensure_provenance(self, cur) -> str:
+        payload = {"provider": self.provider.provider_id, "model": self.provider.model_id, "model_version": self.provider.model_version, "dimension": self.provider.dimension, "corpus_version": self.provider.corpus_version, "index_version": self.provider.index_version, "normalization_config": self.provider.normalization_config}
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        identity_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        cur.execute("""INSERT INTO pub_neural.embedding_provenance (provider,model,model_version,dimension,corpus_version,index_version,normalization_config,status,identity_hash) VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,'ACTIVE',%s) ON CONFLICT (identity_hash) DO UPDATE SET status='ACTIVE', retired_at=NULL RETURNING id;""", (payload["provider"],payload["model"],payload["model_version"],payload["dimension"],payload["corpus_version"],payload["index_version"],json.dumps(payload["normalization_config"]),identity_hash))
+        row = cur.fetchone()
+        if not row: raise RuntimeError("Embedding provenance registration failed closed.")
+        return str(row["id"])
+
     def sync_node_vector(self, node_id: str) -> Optional[Dict[str, Any]]:
         """
         Derive vector for a node from neural_nodes.
@@ -75,6 +86,7 @@ class VectorIndexingWorker:
                 conn.rollback()
                 return None
 
+            provenance_id = self._ensure_provenance(cur)
             text = f"{node['title']}\n{node['summary'] or ''}\n{node['content'] or ''}".strip()
             current_hash = compute_content_hash(text)
             vector_id = compute_vector_id("NODE", node_id, self.provider.model_id)
@@ -82,7 +94,7 @@ class VectorIndexingWorker:
             # Check existing vector
             cur.execute(
                 """
-                SELECT id, content_hash, originating_event_id
+                SELECT id, content_hash, originating_event_id, embedding_provenance_id
                 FROM pub_neural.neural_vectors
                 WHERE target_type = 'NODE' AND target_id = %s AND model_id = %s;
                 """,
@@ -91,7 +103,7 @@ class VectorIndexingWorker:
             existing = cur.fetchone()
 
             if existing:
-                if existing["content_hash"] == current_hash:
+                if existing["content_hash"] == current_hash and str(existing["embedding_provenance_id"]) == provenance_id:
                     # Already up to date, idempotent no-op
                     conn.rollback()
                     return {
@@ -109,6 +121,7 @@ class VectorIndexingWorker:
                         """
                         UPDATE pub_neural.neural_vectors
                         SET embedding = %s::vector(1536),
+                            embedding_provenance_id = %s::uuid,
                             content_hash = %s,
                             originating_event_id = %s::uuid,
                             trust_zone = %s,
@@ -118,6 +131,7 @@ class VectorIndexingWorker:
                         """,
                         (
                             embedding,
+                            provenance_id,
                             current_hash,
                             str(node["originating_event_id"]),
                             node["trust_zone"],
@@ -140,13 +154,14 @@ class VectorIndexingWorker:
                 cur.execute(
                     """
                     INSERT INTO pub_neural.neural_vectors (
-                        id, target_type, target_id, trust_zone, project_id, model_id,
+                        id, target_type, target_id, trust_zone, project_id, model_id, embedding_provenance_id,
                         embedding, content_hash, originating_event_id, created_at
                     ) VALUES (
-                        %s::uuid, 'NODE', %s, %s, %s, %s, %s::vector(1536), %s, %s::uuid, CURRENT_TIMESTAMP
+                        %s::uuid, 'NODE', %s, %s, %s, %s, %s::uuid, %s::vector(1536), %s, %s::uuid, CURRENT_TIMESTAMP
                     )
                     ON CONFLICT (target_type, target_id, model_id) DO UPDATE SET
                         embedding = EXCLUDED.embedding,
+                        embedding_provenance_id = EXCLUDED.embedding_provenance_id,
                         content_hash = EXCLUDED.content_hash,
                         originating_event_id = EXCLUDED.originating_event_id,
                         trust_zone = EXCLUDED.trust_zone,
@@ -159,6 +174,7 @@ class VectorIndexingWorker:
                         node["trust_zone"],
                         node["project_id"],
                         self.provider.model_id,
+                        provenance_id,
                         embedding,
                         current_hash,
                         str(node["originating_event_id"])
@@ -194,13 +210,14 @@ class VectorIndexingWorker:
                 conn.rollback()
                 return None
 
+            provenance_id = self._ensure_provenance(cur)
             text = f"{ev['exact_quote']}\n{ev['context_before'] or ''}\n{ev['context_after'] or ''}".strip()
             current_hash = compute_content_hash(text)
             vector_id = compute_vector_id("EVIDENCE", evidence_id, self.provider.model_id)
 
             cur.execute(
                 """
-                SELECT id, content_hash, originating_event_id
+                SELECT id, content_hash, originating_event_id, embedding_provenance_id
                 FROM pub_neural.neural_vectors
                 WHERE target_type = 'EVIDENCE' AND target_id = %s AND model_id = %s;
                 """,
@@ -209,7 +226,7 @@ class VectorIndexingWorker:
             existing = cur.fetchone()
 
             if existing:
-                if existing["content_hash"] == current_hash:
+                if existing["content_hash"] == current_hash and str(existing["embedding_provenance_id"]) == provenance_id:
                     conn.rollback()
                     return {
                         "action": "SKIPPED_UP_TO_DATE",
@@ -225,6 +242,7 @@ class VectorIndexingWorker:
                         """
                         UPDATE pub_neural.neural_vectors
                         SET embedding = %s::vector(1536),
+                            embedding_provenance_id = %s::uuid,
                             content_hash = %s,
                             originating_event_id = %s::uuid,
                             trust_zone = %s,
@@ -234,6 +252,7 @@ class VectorIndexingWorker:
                         """,
                         (
                             embedding,
+                            provenance_id,
                             current_hash,
                             str(ev["originating_event_id"]),
                             ev["trust_zone"],
@@ -255,13 +274,14 @@ class VectorIndexingWorker:
                 cur.execute(
                     """
                     INSERT INTO pub_neural.neural_vectors (
-                        id, target_type, target_id, trust_zone, project_id, model_id,
+                        id, target_type, target_id, trust_zone, project_id, model_id, embedding_provenance_id,
                         embedding, content_hash, originating_event_id, created_at
                     ) VALUES (
-                        %s::uuid, 'EVIDENCE', %s, %s, %s, %s, %s::vector(1536), %s, %s::uuid, CURRENT_TIMESTAMP
+                        %s::uuid, 'EVIDENCE', %s, %s, %s, %s, %s::uuid, %s::vector(1536), %s, %s::uuid, CURRENT_TIMESTAMP
                     )
                     ON CONFLICT (target_type, target_id, model_id) DO UPDATE SET
                         embedding = EXCLUDED.embedding,
+                        embedding_provenance_id = EXCLUDED.embedding_provenance_id,
                         content_hash = EXCLUDED.content_hash,
                         originating_event_id = EXCLUDED.originating_event_id,
                         trust_zone = EXCLUDED.trust_zone,
@@ -274,6 +294,7 @@ class VectorIndexingWorker:
                         ev["trust_zone"],
                         ev["project_id"],
                         self.provider.model_id,
+                        provenance_id,
                         embedding,
                         current_hash,
                         str(ev["originating_event_id"])

@@ -1,0 +1,22 @@
+name: PUB Neural Vector Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  vector-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Python dependencies
+        run: python3 -m pip install --disable-pip-version-check psycopg2-binary
+
+      - name: Run isolated vector/provenance suite
+        run: |
+          chmod +x tests/vector/run_vector_tests.sh
+          tests/vector/run_vector_tests.sh

@@ -56,10 +56,13 @@ SET pub_neural.bootstrap_ceo_credential_hash = '${VALID_CEO_HASH}';
 ALTER ROLE pub_neural_app WITH LOGIN PASSWORD 'app_secret_pw';
 EOSQL
 
-    echo "=== [4/6] Applying Frozen Projector Engine V0.1 ==="
+    echo "=== [4/6] Applying Embedding Provenance V0 Migration ==="
+    docker exec -i "${CONTAINER_NAME}" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < "${WORKSPACE_DIR}/migrations/0002_embedding_provenance_v0.sql"
+
+    echo "=== [5/6] Applying Frozen Projector Engine V0.1 ==="
     docker exec -i "${CONTAINER_NAME}" psql -U postgres -d postgres -v ON_ERROR_STOP=1 < "${WORKSPACE_DIR}/src/projector_engine.sql"
 
-    echo "=== [5/6] Executing Hybrid Retrieval & Vector Test Suite (VECTOR-01 to VECTOR-17) ==="
+    echo "=== [6/7] Executing Hybrid Retrieval & Vector Test Suite (VECTOR-01 to VECTOR-17) ==="
     export DB_HOST="127.0.0.1"
     export DB_PORT="${PG_PORT}"
     export DB_NAME="postgres"
@@ -75,7 +78,7 @@ EOSQL
     echo "--- Running Real Semantic Retrieval Quality & Metrics Suite ---"
     python3 "${WORKSPACE_DIR}/tests/vector/test_semantic_quality.py"
 
-    echo "=== [6/6] Cleanup Test Container (Pass #${pass_num}) ==="
+    echo "=== [7/7] Cleanup Test Container (Pass #${pass_num}) ==="
     docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
 }
 

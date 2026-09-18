@@ -1,4 +1,5 @@
 import hashlib
+import json
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 import psycopg2
@@ -67,6 +68,12 @@ class HybridSearchEngine:
             return []
 
         active_model_id = model_id or self.provider.model_id
+        provider_id = self.provider.provider_id
+        model_version = self.provider.model_version
+        dimension = self.provider.dimension
+        corpus_version = self.provider.corpus_version
+        index_version = self.provider.index_version
+        normalization_config = self.provider.normalization_config
         conn = psycopg2.connect(self.db_url, cursor_factory=RealDictCursor)
         conn.autocommit = False
 
@@ -86,7 +93,8 @@ class HybridSearchEngine:
                 # 3. Retrieve Dense Vector Candidates via neural_vectors + neural_nodes / neural_evidence
                 # Cosine distance: embedding <=> query_vec
                 query_vec = self.provider.generate_embedding(query)
-                dense_results = self._retrieve_dense(cur, query_vec, active_model_id, trust_zone, project_id)
+                provenance_id = self._resolve_compatible_provenance(cur, provider_id, active_model_id, model_version, dimension, corpus_version, index_version, normalization_config)
+                dense_results = self._retrieve_dense(cur, query_vec, active_model_id, provenance_id, trust_zone, project_id)
 
                 # 4. Perform Reciprocal Rank Fusion (RRF)
                 fused = self._fuse_rrf(lexical_results, dense_results)
@@ -122,17 +130,24 @@ class HybridSearchEngine:
         active_model_id = model_id or self.provider.model_id
         try:
             with conn.cursor() as cur:
+                provenance_id = self._resolve_compatible_provenance(cur, self.provider.provider_id, active_model_id, self.provider.model_version, self.provider.dimension, self.provider.corpus_version, self.provider.index_version, self.provider.normalization_config)
                 query_vec = self.provider.generate_embedding(query)
-                return self._retrieve_dense(cur, query_vec, active_model_id, trust_zone, project_id)
+                return self._retrieve_dense(cur, query_vec, active_model_id, provenance_id, trust_zone, project_id)
         finally:
             conn.close()
+
+    def _resolve_compatible_provenance(self, cur, provider: str, model: str, model_version: Optional[str], dimension: int, corpus_version: str, index_version: str, normalization_config: Dict[str, Any]) -> str:
+        cur.execute("""SELECT id FROM pub_neural.embedding_provenance WHERE status='ACTIVE' AND provider=%s AND model=%s AND model_version IS NOT DISTINCT FROM %s AND dimension=%s AND corpus_version=%s AND index_version=%s AND normalization_config=%s::jsonb ORDER BY created_at DESC LIMIT 1;""",(provider,model,model_version,dimension,corpus_version,index_version,json.dumps(normalization_config, sort_keys=True, separators=(",", ":"))))
+        row=cur.fetchone()
+        if not row: raise RuntimeError("Dense retrieval blocked: no ACTIVE compatible embedding provenance.")
+        return str(row["id"])
 
     def _retrieve_lexical(
         self,
         cur,
         query: str,
         trust_zone: Optional[str],
-        project_id: Optional[str]
+        project_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Retrieve lexical candidates ordered by ts_rank DESC.
@@ -193,13 +208,38 @@ class HybridSearchEngine:
         cur,
         query_vec: List[float],
         model_id: str,
-        trust_zone: Optional[str],
-        project_id: Optional[str]
+        provenance_id: Optional[str] = None,
+        trust_zone: Optional[str] = None,
+        project_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Retrieve dense candidates ordered by cosine distance ASC.
         Excludes stale vectors whose content_hash no longer matches the entity text.
         """
+        if provenance_id is None:
+            provenance_id = self._resolve_compatible_provenance(
+                cur,
+                self.provider.provider_id,
+                model_id,
+                self.provider.model_version,
+                self.provider.dimension,
+                self.provider.corpus_version,
+                self.provider.index_version,
+                self.provider.normalization_config,
+            )
+
+        if provenance_id is None:
+            provenance_id = self._resolve_compatible_provenance(
+                cur,
+                self.provider.provider_id,
+                model_id,
+                self.provider.model_version,
+                self.provider.dimension,
+                self.provider.corpus_version,
+                self.provider.index_version,
+                self.provider.normalization_config,
+            )
+
         sql = """
             SELECT 
                 v.target_type,
@@ -220,12 +260,13 @@ class HybridSearchEngine:
             LEFT JOIN pub_neural.neural_evidence e 
                 ON v.target_type = 'EVIDENCE' AND v.target_id = e.id::text
             WHERE v.model_id = %s
+              AND v.embedding_provenance_id = %s::uuid
               AND (
                   (v.target_type = 'NODE' AND n.is_active = TRUE)
                   OR (v.target_type = 'EVIDENCE' AND e.id IS NOT NULL)
               )
         """
-        params = [query_vec, model_id]
+        params = [query_vec, model_id, provenance_id]
 
         if trust_zone:
             sql += " AND v.trust_zone = %s"
