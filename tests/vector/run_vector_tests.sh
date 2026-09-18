@@ -80,10 +80,12 @@ EOSQL
     export PYTHONPATH="${WORKSPACE_DIR}"
 
     echo "--- Running Engineering & Adversarial Test Suite ---"
-    python3 "${WORKSPACE_DIR}/tests/vector/test_hybrid_retrieval_and_vectors.py"
+    DB_HOST="127.0.0.1" DB_PORT="${PG_PORT}" DB_NAME="postgres" DB_USER="pub_neural_app" DB_PASS="app_secret_pw" ADMIN_USER="postgres" ADMIN_PASS="postgres" PYTHONPATH="${WORKSPACE_DIR}" \
+        python3 "${WORKSPACE_DIR}/tests/vector/test_hybrid_retrieval_and_vectors.py"
 
     echo "--- Running Real Semantic Retrieval Quality & Metrics Suite ---"
-    python3 "${WORKSPACE_DIR}/tests/vector/test_semantic_quality.py"
+    DB_HOST="127.0.0.1" DB_PORT="${PG_PORT}" DB_NAME="postgres" DB_USER="pub_neural_app" DB_PASS="app_secret_pw" ADMIN_USER="postgres" ADMIN_PASS="postgres" PYTHONPATH="${WORKSPACE_DIR}" \
+        python3 "${WORKSPACE_DIR}/tests/vector/test_semantic_quality.py"
 
     echo "=== [6/6] Cleanup Test Container (Pass #${pass_num}) ==="
     docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
