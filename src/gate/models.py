@@ -780,6 +780,8 @@ class NeuralExperienceRecord:
     objective: str
     evidence: TaskEvidence
     completed_at: str
+    occurred_at: Optional[str] = None
+    ingested_at: Optional[str] = None
     commit_sha: Optional[str] = None
     remote_sha: Optional[str] = None
     agent_id: Optional[str] = None
@@ -798,6 +800,10 @@ class NeuralExperienceRecord:
         self.branch = _validate_non_empty_str(self.branch, "branch")
         self.objective = _validate_non_empty_str(self.objective, "objective")
         self.completed_at = _validate_iso_timestamp(self.completed_at, "completed_at")
+        if self.occurred_at is not None:
+            self.occurred_at = _validate_iso_timestamp(self.occurred_at, "occurred_at")
+        if self.ingested_at is not None:
+            self.ingested_at = _validate_iso_timestamp(self.ingested_at, "ingested_at")
         self.ingestion_source = _validate_non_empty_str(self.ingestion_source, "ingestion_source")
         self.status = TaskExecutionStatus.from_str(self.status)
 
@@ -846,6 +852,10 @@ class NeuralExperienceRecord:
             "trace": self.trace,
             "completedAt": self.completed_at,
             "completed_at": self.completed_at,
+            "occurredAt": self.occurred_at,
+            "occurred_at": self.occurred_at,
+            "ingestedAt": self.ingested_at,
+            "ingested_at": self.ingested_at,
             "ingestionSource": self.ingestion_source,
             "ingestion_source": self.ingestion_source,
         }
@@ -882,6 +892,8 @@ class NeuralExperienceRecord:
             consumed_knowledge_ids=list(consumed_raw),
             trace=data.get("trace"),
             completed_at=data.get("completedAt", data.get("completed_at", "")),
+            occurred_at=data.get("occurredAt", data.get("occurred_at")),
+            ingested_at=data.get("ingestedAt", data.get("ingested_at")),
             ingestion_source=data.get("ingestionSource", data.get("ingestion_source", "pdl-bidirectional-gate")),
             execution_id=data.get("executionId", data.get("execution_id")),
             correlation_id=data.get("correlationId", data.get("correlation_id")),
