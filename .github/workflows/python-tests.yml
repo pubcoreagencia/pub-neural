@@ -24,6 +24,7 @@ jobs:
         run: |
           python -m unittest discover -s tests -p 'test_abstention_policy.py' -v
           python -m unittest discover -s tests -p 'test_abstention_calibration.py' -v
+          python -m unittest discover -s tests/gate -p 'test_experience_idempotency_concurrency.py' -v
 
   integration-tests:
     name: Integration Tests (PostgreSQL + pgvector)
