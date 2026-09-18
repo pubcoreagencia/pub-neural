@@ -109,6 +109,12 @@ CREATE INDEX IF NOT EXISTS idx_embedding_provenance_active
 CREATE INDEX IF NOT EXISTS idx_neural_vectors_provenance
     ON pub_neural.neural_vectors (embedding_provenance_id);
 
+-- Runtime roles need explicit access to the provenance registry because the table is
+-- created after the baseline role grants in migration 0001.
+GRANT SELECT ON pub_neural.embedding_provenance TO pub_neural_app, pub_neural_ceo, pub_neural_projector, pub_neural_admin;
+GRANT INSERT, UPDATE ON pub_neural.embedding_provenance TO pub_neural_projector, pub_neural_admin;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA pub_neural TO pub_neural_projector, pub_neural_admin;
+
 -- Version boundaries are explicit. A retrieval path must use an ACTIVE
 -- provenance identity and must match the complete identity, not only dimension.
 CREATE OR REPLACE FUNCTION pub_neural.embedding_provenance_compatible(
