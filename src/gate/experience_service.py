@@ -7,6 +7,7 @@ and the underlying event sourcing and idempotency engine.
 from datetime import datetime, timezone
 import hashlib
 from typing import Any, Dict, List, Optional, Protocol, Union
+import threading
 import uuid
 
 from .enums import ExperienceWritebackStatus, PromotionState, TaskExecutionStatus
@@ -42,6 +43,28 @@ class ExperienceSink(Protocol):
     ) -> None:
         ...
 
+    def append_idempotent_event(
+        self, idempotency_key: str, request_hash: str, event_id: uuid.UUID,
+        event_type: str, stream_id: str, payload: Dict[str, Any],
+        producer_version: str = "v1.0.0", response_payload: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]: ...
+
+    def append_idempotent_event(
+        self, idempotency_key: str, request_hash: str, event_id: uuid.UUID,
+        event_type: str, stream_id: str, payload: Dict[str, Any],
+        producer_version: str = "v1.0.0", response_payload: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        with self._lock:
+            existing = self.idempotency_records.get(idempotency_key)
+            if existing:
+                return {"duplicate": True, **existing}
+            self.global_sequence_counter += 1
+            seq = self.global_sequence_counter
+            self.events[str(event_id)] = {"id": str(event_id), "global_sequence": seq, "event_type": event_type, "stream_id": stream_id, "stream_version": seq, "producer_version": producer_version, "payload": payload, "recorded_at": datetime.now(timezone.utc).isoformat()}
+            record = {"idempotency_key": idempotency_key, "request_hash": request_hash, "resulting_event_id": str(event_id), "response_payload": response_payload or {}, "created_at": datetime.now(timezone.utc).isoformat()}
+            self.idempotency_records[idempotency_key] = record
+            return {"duplicate": False, "global_sequence": seq, **record}
+
     def append_canonical_event(
         self,
         event_id: uuid.UUID,
@@ -66,6 +89,7 @@ class InMemoryExperienceSink:
         self.events: Dict[str, Dict[str, Any]] = {}
         self.idempotency_records: Dict[str, Dict[str, Any]] = {}
         self.global_sequence_counter: int = 0
+        self._lock = threading.Lock()
 
     def check_idempotency(self, idempotency_key: str) -> Optional[Dict[str, Any]]:
         return self.idempotency_records.get(idempotency_key)
@@ -264,12 +288,10 @@ class NeuralExperienceService:
                 correlation_id=correlation_id,
             )
 
-        # 5. Event Generation and Persistence
+        # 5. Event Generation and Atomic Idempotent Persistence
         ns = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
         event_id = uuid.uuid5(ns, f"exp:{idempotency_key}:{validated_record.completed_at}")
         stream_id = f"stream:task:{validated_record.task_id}"
-
-        # Preserve canonical execution payload ensuring Candidate != Validated
         validated_record.ingested_at = datetime.now(timezone.utc).isoformat()
         event_payload = validated_record.to_dict()
         event_payload["candidateState"] = PromotionState.CANDIDATE.value
@@ -277,36 +299,22 @@ class NeuralExperienceService:
         event_payload["correlationId"] = correlation_id
 
         try:
-            seq = self.sink.append_canonical_event(
-                event_id=event_id,
-                event_type="TASK_EXPERIENCE_RECORDED",
-                stream_id=stream_id,
-                payload=event_payload,
+            persisted = self.sink.append_idempotent_event(
+                idempotency_key=idempotency_key, request_hash=request_hash, event_id=event_id,
+                event_type="TASK_EXPERIENCE_RECORDED", stream_id=stream_id, payload=event_payload,
                 producer_version="v1.0.0",
+                response_payload={"task_id": validated_record.task_id, "event_id": str(event_id), "idempotency_key": idempotency_key},
             )
-
-            result_obj = ExperienceIngestionResult(
-                status=ExperienceWritebackStatus.ACCEPTED,
-                task_id=validated_record.task_id,
-                event_id=str(event_id),
-                idempotency_key=idempotency_key,
-                is_duplicate=False,
-                candidate_findings_count=candidate_count,
-                recorded_at=datetime.now(timezone.utc).isoformat(),
-                metadata={"global_sequence": seq},
-                execution_id=execution_id,
-                correlation_id=correlation_id,
-            )
-
-            # Record idempotency record
-            self.sink.record_idempotency(
-                idempotency_key=idempotency_key,
-                request_hash=request_hash,
-                resulting_event_id=event_id,
-                response_payload=result_obj.to_dict(),
-            )
-
-            return result_obj
+            if persisted.get("duplicate"):
+                return ExperienceIngestionResult(status=ExperienceWritebackStatus.DUPLICATE, task_id=validated_record.task_id,
+                    event_id=str(persisted.get("resulting_event_id", event_id)), idempotency_key=idempotency_key,
+                    is_duplicate=True, candidate_findings_count=candidate_count, recorded_at=persisted.get("created_at"),
+                    reason="Duplicate experience record acknowledged (atomic idempotency)", metadata={"idempotent_replay": True},
+                    execution_id=execution_id, correlation_id=correlation_id)
+            return ExperienceIngestionResult(status=ExperienceWritebackStatus.ACCEPTED, task_id=validated_record.task_id,
+                event_id=str(event_id), idempotency_key=idempotency_key, is_duplicate=False,
+                candidate_findings_count=candidate_count, recorded_at=persisted.get("created_at"),
+                metadata={"global_sequence": persisted.get("global_sequence")}, execution_id=execution_id, correlation_id=correlation_id)
 
         except GateTransportError as e:
             return ExperienceIngestionResult(
