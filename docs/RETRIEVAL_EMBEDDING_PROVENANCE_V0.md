@@ -1,7 +1,9 @@
 # Retrieval Embedding Provenance Contract — V0
 
 ## Status
-Research-derived architectural requirement from the 2026-09-17 external agent ecosystem audit.
+**IMPLEMENTED + VALIDATED — P0 COMPLETE (2026-09-18)**
+
+Research-derived architectural requirement from the 2026-09-17 external agent ecosystem audit. Implementation landed through PR #7 and is now on `main` at `7e9ab1ec077500670b6242aa7dd45ccaa09d2235`.
 
 ## Problem
 
@@ -43,4 +45,17 @@ Embedding model changes require an explicit migration/version boundary:
 
 This contract supports PUB Neural's principles of provenance, abstention, reproducibility and institutional memory integrity.
 
-This is a design contract, not yet a database migration. Implementation must be proposed and tested separately.
+## Implementation evidence
+
+Implemented in `migrations/0002_embedding_provenance_v0.sql` and runtime retrieval/indexing modules.
+
+The implementation persists provider/model/model-version/dimension/corpus/index/normalization provenance, binds vectors to an immutable provenance identity, and blocks dense retrieval when no ACTIVE exact-compatible provenance exists.
+
+Validation evidence:
+- GitHub Actions isolated PostgreSQL 16 + pgvector suite: PASS.
+- VECTOR-01..17: PASS in two clean passes.
+- SEMANTIC-01..06: PASS.
+- Normalization configuration participates in compatibility identity.
+- PR #7 merged to `main`.
+
+Migration/version changes must continue to preserve the explicit boundary defined above. New embedding spaces require a new provenance identity and explicit re-index/migration validation.
