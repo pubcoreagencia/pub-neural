@@ -147,12 +147,24 @@ class HybridSearchEngine:
         cur,
         query: str,
         trust_zone: Optional[str],
-        project_id: Optional[str]
+        project_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Retrieve lexical candidates ordered by ts_rank DESC.
         Enforces tenant filter and joins with neural_nodes for full metadata.
         """
+        if provenance_id is None:
+            provenance_id = self._resolve_compatible_provenance(
+                cur,
+                self.provider.provider_id,
+                model_id,
+                self.provider.model_version,
+                self.provider.dimension,
+                self.provider.corpus_version,
+                self.provider.index_version,
+                self.provider.normalization_config,
+            )
+
         sql = """
             SELECT 
                 fts.id AS target_id,
@@ -208,8 +220,8 @@ class HybridSearchEngine:
         cur,
         query_vec: List[float],
         model_id: str,
-        provenance_id: str,
-        trust_zone: Optional[str],
+        provenance_id: Optional[str] = None,
+        trust_zone: Optional[str] = None,
         project_id: Optional[str]
     ) -> List[Dict[str, Any]]:
         """
