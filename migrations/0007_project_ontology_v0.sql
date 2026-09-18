@@ -67,6 +67,10 @@ CREATE POLICY project_repositories_read_policy ON pub_neural.project_repositorie
     FOR SELECT
     USING (true);
 
+-- Runtime catalog readers
+GRANT SELECT ON pub_neural.holding_projects TO pub_neural_app, pub_neural_ceo;
+GRANT SELECT ON pub_neural.project_repositories TO pub_neural_app, pub_neural_ceo;
+
 -- 3. Update schema versions table
 INSERT INTO pub_neural.neural_schema_versions (
     component,
