@@ -27,7 +27,17 @@ run_test_pass() {
 
     docker rm -f "${CONTAINER_NAME}" 2>/dev/null || true
 
-    # Let Docker allocate an ephemeral host port to avoid collisions on shared runners.\n    PG_PORT="$(python3 - <<'PY'\nimport socket\ns=socket.socket()\ns.bind(("127.0.0.1", 0))\nprint(s.getsockname()[1])\ns.close()\nPY\n)"\n\n    echo "=== [2/6] Starting Isolated PostgreSQL 16 Container (Pass #${pass_num}) ==="
+    # Let Docker allocate an ephemeral host port to avoid collisions on shared runners.
+    PG_PORT="$(python3 - <<'PY'
+import socket
+s=socket.socket()
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()
+PY
+)"
+
+    echo "=== [2/6] Starting Isolated PostgreSQL 16 Container (Pass #${pass_num}) ==="
     docker run -d \
         --name "${CONTAINER_NAME}" \
         -e POSTGRES_PASSWORD=postgres \
