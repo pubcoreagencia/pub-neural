@@ -55,7 +55,7 @@ class PostgresExperienceSink(ExperienceSink):
         """Validate project against the canonical holding project catalog."""
         with self._get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SET SESSION AUTHORIZATION pub_neural_ceo;")
+                cur.execute("SET ROLE pub_neural_ceo;")
                 cur.execute(
                     """
                     SELECT 1
