@@ -222,12 +222,24 @@ class HybridSearchEngine:
         model_id: str,
         provenance_id: Optional[str] = None,
         trust_zone: Optional[str] = None,
-        project_id: Optional[str]
+        project_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Retrieve dense candidates ordered by cosine distance ASC.
         Excludes stale vectors whose content_hash no longer matches the entity text.
         """
+        if provenance_id is None:
+            provenance_id = self._resolve_compatible_provenance(
+                cur,
+                self.provider.provider_id,
+                model_id,
+                self.provider.model_version,
+                self.provider.dimension,
+                self.provider.corpus_version,
+                self.provider.index_version,
+                self.provider.normalization_config,
+            )
+
         sql = """
             SELECT 
                 v.target_type,
