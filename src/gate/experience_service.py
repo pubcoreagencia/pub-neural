@@ -19,6 +19,13 @@ from .models import (
 )
 
 
+class ProjectCatalog(Protocol):
+    """Canonical project catalog lookup used by runtime ingestion."""
+
+    def is_canonical_project(self, project_id: str) -> bool:
+        ...
+
+
 class ExperienceSink(Protocol):
     """Protocol for persisting experience events and idempotency records."""
 
@@ -117,8 +124,9 @@ class NeuralExperienceService:
       - Event sourcing integration
     """
 
-    def __init__(self, sink: Optional[ExperienceSink] = None) -> None:
+    def __init__(self, sink: Optional[ExperienceSink] = None, project_catalog: Optional[ProjectCatalog] = None) -> None:
         self.sink = sink or InMemoryExperienceSink()
+        self.project_catalog = project_catalog
 
     def generate_idempotency_key(self, record: NeuralExperienceRecord) -> str:
         """Derive a deterministic idempotency key for task experience."""
@@ -160,11 +168,48 @@ class NeuralExperienceService:
         execution_id = validated_record.execution_id
         correlation_id = validated_record.correlation_id
 
-        # 2. Invariant: Candidate findings must remain strictly CANDIDATE
+        # 2. Canonical project validation. Runtime deployments inject the real catalog.
+        if self.project_catalog is not None:
+            try:
+                if not self.project_catalog.is_canonical_project(validated_record.project_id):
+                    return ExperienceIngestionResult(
+                        status=ExperienceWritebackStatus.INVALID_REQUEST,
+                        task_id=validated_record.task_id,
+                        reason=f"Unknown or inactive canonical project: {validated_record.project_id}",
+                        execution_id=execution_id,
+                        correlation_id=correlation_id,
+                    )
+            except (ConnectionError, TimeoutError, OSError) as e:
+                return ExperienceIngestionResult(
+                    status=ExperienceWritebackStatus.UNAVAILABLE,
+                    task_id=validated_record.task_id,
+                    reason=f"Project catalog unavailable: {e}",
+                    execution_id=execution_id,
+                    correlation_id=correlation_id,
+                )
+            except Exception as e:
+                err_name = type(e).__name__
+                if "OperationalError" in err_name or "InterfaceError" in err_name:
+                    return ExperienceIngestionResult(
+                        status=ExperienceWritebackStatus.UNAVAILABLE,
+                        task_id=validated_record.task_id,
+                        reason=f"Project catalog database failure: {e}",
+                        execution_id=execution_id,
+                        correlation_id=correlation_id,
+                    )
+                return ExperienceIngestionResult(
+                    status=ExperienceWritebackStatus.INTERNAL_ERROR,
+                    task_id=validated_record.task_id,
+                    reason=f"Unexpected project catalog error: {e}",
+                    execution_id=execution_id,
+                    correlation_id=correlation_id,
+                )
+
+        # 3. Invariant: Candidate findings must remain strictly CANDIDATE
         # Never promote automatically to VALIDATED or ADOPTED
         candidate_count = len(validated_record.candidate_findings)
 
-        # 3. Idempotency Check
+        # 4. Idempotency Check
         idempotency_key = self.generate_idempotency_key(validated_record)
         request_hash = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
 
@@ -219,12 +264,13 @@ class NeuralExperienceService:
                 correlation_id=correlation_id,
             )
 
-        # 4. Event Generation and Persistence
+        # 5. Event Generation and Persistence
         ns = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
         event_id = uuid.uuid5(ns, f"exp:{idempotency_key}:{validated_record.completed_at}")
         stream_id = f"stream:task:{validated_record.task_id}"
 
         # Preserve canonical execution payload ensuring Candidate != Validated
+        validated_record.ingested_at = datetime.now(timezone.utc).isoformat()
         event_payload = validated_record.to_dict()
         event_payload["candidateState"] = PromotionState.CANDIDATE.value
         event_payload["executionId"] = execution_id
