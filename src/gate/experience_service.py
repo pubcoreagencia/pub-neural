@@ -49,22 +49,6 @@ class ExperienceSink(Protocol):
         producer_version: str = "v1.0.0", response_payload: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]: ...
 
-    def append_idempotent_event(
-        self, idempotency_key: str, request_hash: str, event_id: uuid.UUID,
-        event_type: str, stream_id: str, payload: Dict[str, Any],
-        producer_version: str = "v1.0.0", response_payload: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        with self._lock:
-            existing = self.idempotency_records.get(idempotency_key)
-            if existing:
-                return {"duplicate": True, **existing}
-            self.global_sequence_counter += 1
-            seq = self.global_sequence_counter
-            self.events[str(event_id)] = {"id": str(event_id), "global_sequence": seq, "event_type": event_type, "stream_id": stream_id, "stream_version": seq, "producer_version": producer_version, "payload": payload, "recorded_at": datetime.now(timezone.utc).isoformat()}
-            record = {"idempotency_key": idempotency_key, "request_hash": request_hash, "resulting_event_id": str(event_id), "response_payload": response_payload or {}, "created_at": datetime.now(timezone.utc).isoformat()}
-            self.idempotency_records[idempotency_key] = record
-            return {"duplicate": False, "global_sequence": seq, **record}
-
     def append_canonical_event(
         self,
         event_id: uuid.UUID,
@@ -109,6 +93,22 @@ class InMemoryExperienceSink:
             "response_payload": response_payload,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
+
+    def append_idempotent_event(
+        self, idempotency_key: str, request_hash: str, event_id: uuid.UUID,
+        event_type: str, stream_id: str, payload: Dict[str, Any],
+        producer_version: str = "v1.0.0", response_payload: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        with self._lock:
+            existing = self.idempotency_records.get(idempotency_key)
+            if existing:
+                return {"duplicate": True, **existing}
+            self.global_sequence_counter += 1
+            seq = self.global_sequence_counter
+            self.events[str(event_id)] = {"id": str(event_id), "global_sequence": seq, "event_type": event_type, "stream_id": stream_id, "stream_version": seq, "producer_version": producer_version, "payload": payload, "recorded_at": datetime.now(timezone.utc).isoformat()}
+            record = {"idempotency_key": idempotency_key, "request_hash": request_hash, "resulting_event_id": str(event_id), "response_payload": response_payload or {}, "created_at": datetime.now(timezone.utc).isoformat()}
+            self.idempotency_records[idempotency_key] = record
+            return {"duplicate": False, "global_sequence": seq, **record}
 
     def append_canonical_event(
         self,
