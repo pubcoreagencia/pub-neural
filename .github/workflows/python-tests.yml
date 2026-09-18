@@ -46,3 +46,5 @@ jobs:
         run: bash tests/vector/run_vector_tests.sh
       - name: Run Projector Engine Integration Suite
         run: bash tests/projectors/run_projector_tests.sh
+      - name: Run Runtime PostgreSQL E2E Closed Loop
+        run: bash tests/runtime/run_runtime_postgres_e2e.sh
