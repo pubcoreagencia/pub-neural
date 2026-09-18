@@ -1,9 +1,6 @@
 name: PUB Neural Vector Tests
 
 on:
-  push:
-    branches:
-      - "feat/embedding-provenance-v0"
   pull_request:
     branches:
       - main
