@@ -153,18 +153,6 @@ class HybridSearchEngine:
         Retrieve lexical candidates ordered by ts_rank DESC.
         Enforces tenant filter and joins with neural_nodes for full metadata.
         """
-        if provenance_id is None:
-            provenance_id = self._resolve_compatible_provenance(
-                cur,
-                self.provider.provider_id,
-                model_id,
-                self.provider.model_version,
-                self.provider.dimension,
-                self.provider.corpus_version,
-                self.provider.index_version,
-                self.provider.normalization_config,
-            )
-
         sql = """
             SELECT 
                 fts.id AS target_id,
@@ -228,6 +216,18 @@ class HybridSearchEngine:
         Retrieve dense candidates ordered by cosine distance ASC.
         Excludes stale vectors whose content_hash no longer matches the entity text.
         """
+        if provenance_id is None:
+            provenance_id = self._resolve_compatible_provenance(
+                cur,
+                self.provider.provider_id,
+                model_id,
+                self.provider.model_version,
+                self.provider.dimension,
+                self.provider.corpus_version,
+                self.provider.index_version,
+                self.provider.normalization_config,
+            )
+
         if provenance_id is None:
             provenance_id = self._resolve_compatible_provenance(
                 cur,
