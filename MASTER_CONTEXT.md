@@ -813,7 +813,7 @@ The primary bottleneck observed was the volatility of the OpenRouter free routin
 
 ---
 
-## 18. VERIFIED PDL AGENT RUNTIME CONTRACT V1
+## 19. VERIFIED PDL AGENT RUNTIME CONTRACT V1
 
 **Recorded:** 2026-09-17  
 **Knowledge class:** SEMANTIC + PROCEDURAL + DECISION + LESSON + EVIDENCE  
@@ -823,7 +823,7 @@ The primary bottleneck observed was the volatility of the OpenRouter free routin
 
 PDL P1.1 formalized the existing autonomous execution boundary as a versioned Agent Runtime Contract without creating a second execution runtime.
 
-### 18.1 Source and provenance
+### 19.1 Source and provenance
 
 - Repository: `pubcoreagencia/pub-dev-loop`
 - Merged PR: #26, `P1.1: introduce PDL Agent Runtime Contract`
@@ -833,7 +833,7 @@ PDL P1.1 formalized the existing autonomous execution boundary as a versioned Ag
 - CI result: SUCCESS
 - Validation: Typecheck, build, sandbox container image and unit tests all passed.
 
-### 18.2 Canonical contract
+### 19.2 Canonical contract
 
 Contract version: `pdl-agent-runtime-v1`
 
@@ -843,7 +843,7 @@ Canonical lifecycle:
 
 Runtime context carries run identity, task identity, repository and optional project, branch, workspace, provider and model metadata. Terminal results expose structured evidence and explicit `COMPLETED`, `FAILED`, `BLOCKED` or `CANCELLED` status.
 
-### 18.3 P1.1 invariants validated
+### 19.3 P1.1 invariants validated
 
 1. Single runtime: the contract wraps existing PDL execution paths rather than introducing a parallel runtime.
 2. Fail closed: contract-version and task-identity mismatches block execution.
@@ -854,7 +854,7 @@ Runtime context carries run identity, task identity, repository and optional pro
 7. Neural downstream: PUB Neural remains institutional memory, not an execution dependency.
 8. No nanobot clone: external agent-runtime research informed architecture only; PUB-native runtime contracts remain authoritative.
 
-### 18.4 Adapter proof
+### 19.4 Adapter proof
 
 `ExecutionEngineRuntimeAdapter` was added as the first compatibility adapter. It delegates physical execution to the existing `ExecutionEngine` and maps the result into the runtime contract.
 
@@ -866,16 +866,16 @@ Behavioral tests cover:
 
 A test-fixture correction was required because the real `TaskLineage` contract does not contain `taskId`; the fixture was corrected to use the authoritative lineage shape before final CI validation.
 
-### 18.5 Institutional lesson
+### 19.5 Institutional lesson
 
 **Do not create a second agent runtime merely because external agent frameworks expose a different abstraction.** The correct PDL evolution is to formalize and instrument the runtime boundary already proven by the existing scheduler, governance, execution engine, provider and workspace layers.
 
 The runtime contract is therefore an architectural seam, not a replacement architecture.
 
-### 18.6 Promotion boundary
+### 19.6 Promotion boundary
 
 This entry is recorded as VALIDATED based on merged source and successful CI evidence. It should only move to `ADOPTED` or `INSTITUTIONAL` after the contract is used by a real end-to-end PDL runtime path beyond the adapter proof.
 
-### 18.7 Current next step
+### 19.7 Current next step
 
 P1.1 is closed as a validated architectural contract. Future work should prove end-to-end runtime lifecycle coverage, including validation, correction, review, finalization and persistence evidence, without duplicating the existing execution runtime.
