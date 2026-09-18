@@ -51,6 +51,24 @@ class PostgresExperienceSink(ExperienceSink):
         conn.autocommit = False
         return conn
 
+    def is_canonical_project(self, project_id: str) -> bool:
+        """Validate project against the canonical holding project catalog."""
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET SESSION AUTHORIZATION pub_neural_ceo;")
+                cur.execute(
+                    """
+                    SELECT 1
+                    FROM pub_neural.holding_projects
+                    WHERE id = %s
+                      AND is_active = TRUE
+                      AND is_archived = FALSE
+                    LIMIT 1;
+                    """,
+                    (project_id,),
+                )
+                return cur.fetchone() is not None
+
     def check_idempotency(self, idempotency_key: str) -> Optional[Dict[str, Any]]:
         with self._get_conn() as conn:
             with conn.cursor() as cur:
@@ -170,7 +188,7 @@ def run_runtime_server():
     # 1. Instantiate PostgreSQL Sink and Experience Service
     logger.info("Connecting ExperienceSink to PostgreSQL at %s", cfg.db_url)
     exp_sink = PostgresExperienceSink(db_url=cfg.db_url)
-    exp_service = NeuralExperienceService(sink=exp_sink)
+    exp_service = NeuralExperienceService(sink=exp_sink, project_catalog=exp_sink)
 
     # 2. Instantiate HybridSearchEngine and Query Service
     logger.info("Initializing HybridSearchEngine and NeuralQueryService...")
