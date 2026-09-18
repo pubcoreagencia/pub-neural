@@ -108,3 +108,32 @@ A live projector execution was attempted for `graph_projector`, sequences 8 thro
 Sequence 8 is a legacy `REPOSITORY_OBSERVED` event whose payload shape does not satisfy the current reducer contract. The reducer requires `provenance.delivery_id`, `provenance.payload_hash`, and nested payload fields, while sequence 8 stores those observation fields in the event payload at the top level. This blocks the graph projector before any PUB Crypto event can be consumed.
 
 This is a PUB Neural ingestion/projector contract issue, not a PUB Crypto validation issue. It must be corrected or explicitly migrated before the first PUB Crypto E2E projection proof.
+
+
+## PUB Neural Repair Proof — 2026-09-17
+
+The legacy `REPOSITORY_OBSERVED` contract was repaired at the reducer boundary without mutating the append-only `neural_events` log.
+
+Repair:
+
+- legacy top-level `delivery_id`, `ref`, `sha`, and `details` are normalized in-memory into the canonical `provenance` + `payload` shape;
+- when a legacy event has no source payload hash, the reducer derives a deterministic SHA-256 hash from the immutable event payload;
+- existing projection hashes are preserved on replay;
+- malformed events that lack the minimum repository/project/delivery contract remain rejected;
+- the event log itself is not rewritten.
+
+Live proof against the PUB Neural Supabase project:
+
+- replay range: global sequence `8 → 39`;
+- events processed: `32`;
+- events failed: `0`;
+- projector: `HEALTHY`;
+- checkpoint: global sequence `39`;
+- `neural_repository_observations`: `33` rows / `33` distinct event IDs;
+- missing repository observation projections: `0`;
+- `neural_events`: `39` rows;
+- `neural_idempotency_records`: `0` rows;
+- trusted actors: `2`, unchanged;
+- second projector run: `0` events processed, `0` failed, checkpoint remained `39`.
+
+The PUB Crypto gate remains closed. No `TRADING_VALIDATION` event was created by this repair.
