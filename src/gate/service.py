@@ -4,7 +4,7 @@ Provides an in-process service boundary between caller query contracts
 and the underlying retrieval engine.
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from .enums import ConflictState, FreshnessState, GateStatus, KnowledgeClass
 from .exceptions import GateTransportError, GateValidationError
@@ -29,12 +29,14 @@ class NeuralQueryService:
         self,
         retrieval_engine: NeuralRetrievalEngine,
         result_mapper: Optional[NeuralResultMapper] = None,
+        project_validator: Optional[Callable[[str], bool]] = None,
     ):
         if not isinstance(retrieval_engine, NeuralRetrievalEngine):
             if not hasattr(retrieval_engine, "search_knowledge") or not callable(getattr(retrieval_engine, "search_knowledge")):
                 raise TypeError("retrieval_engine must implement NeuralRetrievalEngine protocol (search_knowledge)")
         self.retrieval_engine = retrieval_engine
         self.mapper = result_mapper or NeuralResultMapper()
+        self.project_validator = project_validator
 
     def query(self, request: Union[NeuralQueryRequest, Dict[str, Any]], bearer_token: Optional[str] = None) -> NeuralQueryResponse:
         """
@@ -73,7 +75,32 @@ class NeuralQueryService:
         execution_id = validated_req.execution_id
         correlation_id = validated_req.correlation_id
 
-        # 2. Query Retrieval Engine
+        # 2. Enforce canonical project scope when the runtime provides the catalog validator.
+        if self.project_validator is not None:
+            try:
+                project_is_valid = bool(self.project_validator(validated_req.project_id))
+            except Exception as e:
+                return NeuralQueryResponse(
+                    request_id=validated_req.request_id,
+                    status=GateStatus.UNAVAILABLE,
+                    results=[],
+                    reason=f"Canonical project catalog unavailable: {e}",
+                    task_id=task_id,
+                    execution_id=execution_id,
+                    correlation_id=correlation_id,
+                )
+            if not project_is_valid:
+                return NeuralQueryResponse(
+                    request_id=validated_req.request_id,
+                    status=GateStatus.INVALID_REQUEST,
+                    results=[],
+                    reason=f"Unknown or inactive canonical project: {validated_req.project_id}",
+                    task_id=task_id,
+                    execution_id=execution_id,
+                    correlation_id=correlation_id,
+                )
+
+        # 3. Query Retrieval Engine
         try:
             batch = self.retrieval_engine.search_knowledge(
                 query=validated_req.objective,
