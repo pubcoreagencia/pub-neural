@@ -19,8 +19,8 @@ class RuntimeConfig:
 
     @classmethod
     def from_environment(cls) -> "RuntimeConfig":
-        host = os.getenv("RUNTIME_HOST", "127.0.0.1")
-        port = int(os.getenv("RUNTIME_PORT", "8081"))
+        host = os.getenv("RUNTIME_HOST", "0.0.0.0" if os.getenv("PORT") else "127.0.0.1")
+        port = int(os.getenv("RUNTIME_PORT") or os.getenv("PORT", "8081"))
         
         # Runtime API token is separate from console session tokens
         auth_token = os.getenv("PUB_NEURAL_RUNTIME_TOKEN") or os.getenv("RUNTIME_API_TOKEN")
