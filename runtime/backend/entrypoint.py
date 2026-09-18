@@ -124,8 +124,39 @@ class PostgresExperienceSink(ExperienceSink):
                 )
                 conn.commit()
 
-    def append_canonical_event(
-        self,
+    def append_idempotent_event(
+        self, idempotency_key: str, request_hash: str, event_id: uuid.UUID,
+        event_type: str, stream_id: str, payload: Dict[str, Any],
+        producer_version: str = "v1.0.0", response_payload: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        with self._get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SET SESSION AUTHORIZATION pub_neural_ceo;")
+                cur.execute("""
+                    INSERT INTO pub_neural.neural_idempotency_records
+                        (idempotency_key, actor_id, request_hash, resulting_event_id, response_payload, created_at, expires_at)
+                    VALUES (%s, %s, %s, %s::uuid, %s::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days')
+                    ON CONFLICT (idempotency_key) DO NOTHING
+                    RETURNING idempotency_key;
+                """, (idempotency_key, "pdl:executor", request_hash, str(event_id), json.dumps(response_payload or {})))
+                claimed = cur.fetchone()
+                if not claimed:
+                    cur.execute("SELECT idempotency_key, resulting_event_id, response_payload, created_at FROM pub_neural.neural_idempotency_records WHERE idempotency_key = %s;", (idempotency_key,))
+                    row = cur.fetchone()
+                    conn.commit()
+                    if not row: raise RuntimeError("Idempotency conflict row disappeared")
+                    return {"duplicate": True, "idempotency_key": row[0], "resulting_event_id": str(row[1]), "response_payload": row[2], "created_at": row[3].isoformat()}
+                cur.execute("""
+                    SELECT pub_neural.append_event(%s::uuid, %s, %s, %s, %s, %s::jsonb);
+                """, (str(event_id), event_type, stream_id, 1, producer_version, json.dumps(payload)))
+                seq = cur.fetchone()[0]
+                cur.execute("SELECT pub_neural.reduce_event(e) FROM pub_neural.neural_events e WHERE id = %s::uuid;", (str(event_id),))
+                cur.fetchone()
+                cur.execute("""UPDATE pub_neural.neural_idempotency_records SET response_payload = %s::jsonb WHERE idempotency_key = %s;""", (json.dumps(response_payload or {}), idempotency_key))
+                conn.commit()
+                return {"duplicate": False, "global_sequence": seq, "idempotency_key": idempotency_key, "resulting_event_id": str(event_id)}
+
+    def append_canonical_event(        self,
         event_id: uuid.UUID,
         event_type: str,
         stream_id: str,
