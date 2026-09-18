@@ -2,7 +2,7 @@
 set -euo pipefail
 
 CONTAINER_NAME="pub_neural_runtime_e2e"
-PG_PORT="54398"
+PG_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()' )"
 POSTGRES_IMAGE="pgvector/pgvector:pg16"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
