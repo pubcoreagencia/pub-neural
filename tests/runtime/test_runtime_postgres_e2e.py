@@ -95,7 +95,7 @@ class TestRuntimePostgresE2E(unittest.TestCase):
         }
 
         code, accepted = self.post("/api/v1/runtime/experience", payload)
-        self.assertEqual(code, 200)
+        self.assertEqual(code, 200, accepted)
         self.assertEqual(accepted["status"], "ACCEPTED")
         self.assertFalse(accepted["isDuplicate"])
 
