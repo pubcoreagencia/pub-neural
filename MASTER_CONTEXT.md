@@ -327,9 +327,22 @@ Important reusable patterns include PostgreSQL, RLS/RBAC, transaction boundaries
 
 Role: automated prospecting and business-generation engine.
 
-Verified context state: `IDEA / DESIGN`, priority `HIGH`.
+Verified context state: `VALIDATED / E2E`, priority `HIGH`.
 
-Treat documented architecture as intent, not proof of implementation.
+Validated execution checkpoint: `feat/acp-pub-machine-e2e` at commit `b8c97d8`.
+
+The 2026-09-19 checkpoint materialized and verified the causal vertical slice:
+
+```text
+RAW SIGNAL → AUDIENCE PROFILE → SEGMENTATION → INTENT → LEAD INTENT
+→ LEAD SCORING → DECISION → ACTIVATION → CONVERSION / RECOVERY → FEEDBACK
+```
+
+Explicit contracts added/verified include `activation.contract.ts` and `feedback.contract.ts`. The checkpoint was validated with `npm test`, `npm run build`, `git diff --check`, and a clean worktree before local commit. No external WhatsApp, Meta, Google or CRM provider was faked; in-memory doubles remain test-only infrastructure.
+
+Runtime evidence is recorded separately in `docs/integrations/PUB_MACHINE_GPT_ONLY_ACP_VERTICAL_SLICE_2026-09-19.md` with provenance to PUB MACHINE, ACP Standalone and the GPT Free transport POC.
+
+Treat this as validated project knowledge, not holding-wide mandatory architecture. Reuse requires current repository/runtime verification.
 
 ### PUB PROTOTYPE / PP
 `pubcoreagencia/pub-prototype`
@@ -893,3 +906,21 @@ Current PUB Core OS
 ```
 
 This investigation must remain read-only until an explicit migration/restore instruction is provided.
+
+
+## 20. VERIFIED PUB MACHINE GPT-ONLY ACP VERTICAL SLICE — 2026-09-19
+
+**Knowledge class:** EPISODIC + SEMANTIC + PROCEDURAL + LESSON + EVIDENCE  
+**Scope:** PUB MACHINE / ACP GPT-ONLY RUNTIME  
+**Status:** VALIDATED  
+**Confidence:** HIGH
+
+Canonical evidence: [docs/integrations/PUB_MACHINE_GPT_ONLY_ACP_VERTICAL_SLICE_2026-09-19.md](./docs/integrations/PUB_MACHINE_GPT_ONLY_ACP_VERTICAL_SLICE_2026-09-19.md)
+
+The checkpoint verifies a GPT-only autonomous execution path through ChatGPT Free, local Chrome/CDP, the PUB-ACP-POC transport on port 5127, ACP Standalone and a governed workspace executor, followed by a real PUB MACHINE causal implementation and validation cycle.
+
+Key runtime learning: the original apparent repetition of git status --short was not established as a deterministic stale-response defect. The observed blocking condition was residual concurrent transport state; restarting the resident transport cleared the state, and subsequent isolated requests returned distinct expected responses.
+
+Key governance learning: an agent complete signal is not sufficient evidence of task completion. Future governed completion should corroborate repository state, required validation, build and acceptance criteria before terminal acceptance.
+
+Promotion remains VALIDATED. This checkpoint is project-scoped evidence and must not silently become a holding-wide mandatory rule.
